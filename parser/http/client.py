@@ -27,6 +27,8 @@ class HttpClient:
         self.block_threshold = block_threshold
 
         self._block_attempts = 0
+        self.block_count = 0   # всего блокировок (403/429/439)
+        self.error_count = 0   # всего сетевых ошибок
         self._client = self._build_client()
 
     def _build_client(self) -> requests.Session:
@@ -120,6 +122,7 @@ class HttpClient:
                 print(response.url)
                 if response.status_code in (403, 429, 439):
                     self._block_attempts += 1
+                    self.block_count += 1
                     logger.warning(
                         f"Запрос заблокирован ({response.status_code}) к {url}, "
                         f"попытка {self._block_attempts}"
@@ -148,6 +151,7 @@ class HttpClient:
             except requests.RequestsError as e:
                 last_exc = e
                 self._block_attempts = 0
+                self.error_count += 1
                 logger.warning(f"Request error (attempt {attempt}): {e}")
                 time.sleep(self.retry_delay)
 

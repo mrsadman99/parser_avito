@@ -11,7 +11,7 @@ from loguru import logger
 from pydantic import ValidationError
 
 from common_data import HEADERS
-from db_service import SQLiteDBHandler
+from db_service import SQLiteDBHandler, _now_iso
 from dto import Proxy, AvitoConfig
 from filters.ads_filter import AdsFilter
 from hide_private_data import log_config
@@ -145,6 +145,18 @@ class AvitoParse:
             ),
             {},
         )
+    @staticmethod
+    def _query_label(url: str) -> str:
+        """Извлекает поисковую строку (q=) из ссылки Avito для логов."""
+        try:
+            query = dict(parse_qsl(urlsplit(url).query))
+            q = query.get("q")
+            if q:
+                return q
+        except Exception:
+            pass
+        return url
+
     def parse(self):
         if not self.config.one_file_for_link:
             self.result_storage = build_result_storage(config=self.config)
@@ -174,6 +186,7 @@ class AvitoParse:
         for link_index, source_url in enumerate(self.config.urls):
             api_url = api_urls.get(source_url)
             if not api_url:
+                logger.warning(f"⚠️ Не удалось получить API-адрес для ссылки: {source_url}")
                 continue
 
             if self.config.one_file_for_link:
@@ -182,7 +195,14 @@ class AvitoParse:
                     link_index=link_index,
                 )
 
+            query_label = self._query_label(source_url)
+            blocks_before = self.http.block_count
+            errors_before = self.http.error_count
+            link_got_data = False
             ads_in_link = []
+
+            logger.info(f"🔍 Сканирую ссылку: {query_label}")
+
             for page in range(1, self.config.count + 1):
                 logger.info(f"page={page}")
                 if self.stop_event and self.stop_event.is_set():
@@ -191,12 +211,13 @@ class AvitoParse:
                 json_data = self.fetch_api_data(api_url=api_url, page=page)
                 if not json_data:
                     logger.warning(
-                        f"Не удалось получить данные API для {source_url}, "
+                        f"Не удалось получить данные API для {query_label}, "
                         f"повтор через {self.config.pause_between_links} сек."
                     )
                     time.sleep(self.config.pause_between_links)
                     continue
 
+                link_got_data = True
                 catalog = self._extract_api_catalog(json_data)
                 try:
                     ads_models = ItemsResponse(**catalog)
@@ -236,6 +257,22 @@ class AvitoParse:
 
                 logger.info(f"Пауза {self.config.pause_between_links} сек.")
                 time.sleep(self.config.pause_between_links)
+
+            # --- Итог сканирования ссылки ---
+            blocks = self.http.block_count - blocks_before
+            errors = self.http.error_count - errors_before
+            if link_got_data:
+                status = "✅ успешно"
+            elif blocks > 0:
+                status = "🚫 заблокирован"
+            else:
+                status = "❌ не удалось"
+            logger.info(
+                f"📊 Сканирование: {query_label} | "
+                f"объявлений: {len(ads_in_link)} | "
+                f"статус: {status} | "
+                f"блокировок: {blocks} | ошибок: {errors}"
+            )
 
             if ads_in_link:
                 logger.info(f"Сохраняю {len(ads_in_link)} объявлений")
@@ -465,8 +502,11 @@ class AvitoParse:
         return (now - published_time) <= timedelta(seconds=max_age_seconds)
 
     def __save_viewed(self, ads: list[Item]) -> None:
-        """Сохраняет просмотренные объявления"""
+        """Сохраняет просмотренные объявления и ставит дату сканирования (UTC)."""
         try:
+            now = _now_iso()
+            for ad in ads:
+                ad.scanned_at = now
             self.db_handler.add_record_from_page(ads=ads)
         except Exception as err:
             logger.info(f"При сохранении в БД ошибка {err}")

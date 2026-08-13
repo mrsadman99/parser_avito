@@ -151,6 +151,7 @@ class Item(BaseModel):
     ai_score: float = 0.0
     ai_reason: str = ""
     ai_specs: Optional[dict] = None
+    scanned_at: Optional[str] = None
 
 
 class ItemsResponse(BaseModel):

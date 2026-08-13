@@ -20,6 +20,7 @@ class ExcelStorage(ResultStorage):
         "URL",
         "Описание",
         "Дата публикации",
+        "Дата сканирования",
         "Продавец",
         "Адрес",
         "Адрес пользователя",
@@ -60,6 +61,18 @@ class ExcelStorage(ResultStorage):
             .fromtimestamp(ad.sortTimeStamp / 1000, tz=get_localzone())
             .replace(tzinfo=None)
         )
+
+    @staticmethod
+    def _get_scanned_at(ad: Item) -> str:
+        """Дата сканирования: из UTC (scanned_at) в локальное время пользователя."""
+        scanned_at = getattr(ad, "scanned_at", None)
+        if not scanned_at:
+            return ""
+        try:
+            dt = datetime.fromisoformat(scanned_at)
+            return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        except (ValueError, TypeError):
+            return str(scanned_at)
 
     @staticmethod
     def _get_item_coords(ad: Item) -> str:
@@ -112,6 +125,7 @@ class ExcelStorage(ResultStorage):
                     self.excel_safe(f"https://www.avito.ru/{ad.urlPath}"),
                     self.excel_safe(ad.description),
                     self._get_ad_time(ad),
+                    self.excel_safe(self._get_scanned_at(ad)),
                     self.excel_safe(ad.sellerId or ""),
                     self.excel_safe(ad.location.name if ad.location else ""),
                     self.excel_safe(self._get_item_address_user(ad)),
