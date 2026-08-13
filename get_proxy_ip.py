@@ -13,7 +13,7 @@ import sys
 import requests
 
 from load_config import load_avito_config
-from proxy_helpers import build_proxies_dict
+from proxy_helpers import build_proxies_dict, BROWSER_USER_AGENT
 
 
 def proxies_for(proxy_string: str):
@@ -32,6 +32,7 @@ def change_ip(change_urls: list, notifier_proxy: str = None):
                 params={"format": "json"},
                 proxies=proxies,
                 timeout=30,
+                headers={"User-Agent": BROWSER_USER_AGENT},
             )
             resp.raise_for_status()
             data = resp.json()

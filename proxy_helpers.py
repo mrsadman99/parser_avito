@@ -7,6 +7,14 @@
 Для SOCKS5 требуется установленный пакет PySocks (requests[socks]).
 """
 
+# Требование API mobileproxy.space: программный вызов changeip
+# обязательно должен содержать User-Agent браузера.
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
+
 
 def build_proxies_dict(proxy: str):
     """Строит словарь прокси: http + socks5 (без https).

@@ -4,7 +4,7 @@ import time
 import requests
 from loguru import logger
 
-from proxy_helpers import build_proxies_dict
+from proxy_helpers import build_proxies_dict, BROWSER_USER_AGENT
 
 
 class Proxy(ABC):
@@ -73,6 +73,7 @@ class MobileProxy(Proxy):
                         params=params,
                         timeout=self.CHANGE_IP_TIMEOUT,
                         proxies=proxies,
+                        headers={"User-Agent": BROWSER_USER_AGENT},
                     )
                     if res.status_code == 200:
                         new_ip = res.json().get("new_ip")

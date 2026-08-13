@@ -247,7 +247,11 @@ class AvitoParse:
                 else:
                     filtered_ads = self.parse_full_description(ads=filtered_ads)
 
-                self.notifier.notify_many(ads=filtered_ads)
+                try:
+                    self.notifier.notify_many(ads=filtered_ads)
+                except Exception as err:
+                    logger.warning(f"Ошибка при отправке уведомлений: {err}")
+
                 filtered_ads = self.parse_views(ads=filtered_ads)
                 filtered_ads = self.parse_phone(ads=filtered_ads)
 

@@ -8,6 +8,7 @@ from typing import Optional, Dict, List
 
 from dto import Proxy, ProxySplit
 from playwright_setup import ensure_playwright_installed
+from proxy_helpers import BROWSER_USER_AGENT
 
 MAX_RETRIES = 3
 RETRY_DELAY = 10
@@ -172,7 +173,11 @@ class PlaywrightClient:
             return False
         for attempt in range(1, retries + 1):
             try:
-                response = httpx.get(self.proxy_split_obj.change_ip_link + "&format=json", timeout=20)
+                response = httpx.get(
+                    self.proxy_split_obj.change_ip_link + "&format=json",
+                    timeout=20,
+                    headers={"User-Agent": BROWSER_USER_AGENT},
+                )
                 if response.status_code == 200:
                     logger.info(f"IP изменён на {response.json().get('new_ip')}")
                     return True
