@@ -1,0 +1,72 @@
+{
+  "info": {
+    "_postman_id": "7d1b9a6c-2e5f-4c8d-9b7a-1f3c8d2e5a41",
+    "name": "Avito Parser — IP мобильного прокси",
+    "description": "Запросы для проверки/смены IP мобильного прокси (changeip.mobileproxy.space).\n\nПеред использованием:\n1. Заполните переменную коллекции proxy_key (вкладка Variables).\n2. Для запроса №2 (проверка IP через прокси) задайте HTTP-прокси в Postman: Settings → Proxy → укажите server/port и логин:пароль из вашего proxy_string.\n\nФормат proxy_string: логин:пароль@хост:порт.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Сменить IP (changeip)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://changeip.mobileproxy.space/?proxy_key={{proxy_key}}&format=json",
+          "protocol": "https",
+          "host": [
+            "changeip",
+            "mobileproxy",
+            "space"
+          ],
+          "path": [
+            ""
+          ],
+          "query": [
+            {
+              "key": "proxy_key",
+              "value": "{{proxy_key}}"
+            },
+            {
+              "key": "format",
+              "value": "json"
+            }
+          ]
+        },
+        "description": "Меняет IP мобильного прокси и возвращает новый IP.\n\nОжидаемый ответ:\n```json\n{ \"new_ip\": \"188.162.64.42\" }\n```\n\nЕсли changeip.mobileproxy.space недоступен напрямую — включите прокси в настройках Postman (Settings → Proxy)."
+      }
+    },
+    {
+      "name": "2. Текущий IP через прокси (ipify)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://api.ipify.org/?format=json",
+          "protocol": "https",
+          "host": [
+            "api",
+            "ipify",
+            "org"
+          ],
+          "path": [
+            ""
+          ],
+          "query": [
+            {
+              "key": "format",
+              "value": "json"
+            }
+          ]
+        },
+        "description": "Показывает фактический внешний IP ЧЕРЕЗ прокси (тот, который видит Avito).\n\nВАЖНО: этот запрос должен идти через ваш мобильный прокси. В Postman настройте: Settings → Proxy →\n- Proxy Server: хост:порт из proxy_string\n- Authentication: логин и пароль из proxy_string\n\nОжидаемый ответ:\n```json\n{ \"ip\": \"188.162.64.42\" }\n```"
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "proxy_key",
+      "value": ""
+    }
+  ]
+}

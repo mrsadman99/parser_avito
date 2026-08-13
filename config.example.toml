@@ -37,6 +37,9 @@ ignore_promotion = false             # пропускать продвигаем
 # --- Прокси и обход блокировок ---
 proxy_string = ""                    # формат: логин:пароль@хост:порт
 proxy_change_url = ""                # URL смены IP мобильного прокси (changeip)
+# Дополнительные ссылки смены IP (fallback): если основная не смогла сменить IP,
+# парсер пробует следующую из списка.
+# proxy_change_urls = ["https://changeip.mobileproxy.space/?proxy_key=KEY2", "https://changeip.mobileproxy.space/?proxy_key=KEY3"]
 use_webdriver = true                 # использовать браузер (Playwright)
 use_bypass_api = false               # true — использовать SPFA (spfa.ru)
 cookies_api_key = ""                 # API-ключ SPFA
@@ -55,7 +58,7 @@ retry_on_failure = true              # быстрый повтор при неу
 retry_on_failure_delay = 30          # пауза перед быстрым повтором, сек
 
 # --- Уведомления ---
-proxy_notifier = ""                  # прокси для Telegram (если недоступен напрямую)
+proxy_notifier = ""                  # прокси для Telegram/смены IP (формат: login:pass@host:port)
 tg_only_text = false                 # true — только текст без фото
 
 # --- Режим и сохранение ---

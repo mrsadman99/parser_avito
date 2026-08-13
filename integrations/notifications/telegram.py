@@ -5,6 +5,7 @@ from integrations.notifications.base import Notifier
 from integrations.notifications.transport import send_with_retries
 from integrations.notifications.utils import get_first_image
 from models import Item
+from proxy_helpers import build_proxies_dict
 
 
 class TelegramNotifier(Notifier):
@@ -16,12 +17,7 @@ class TelegramNotifier(Notifier):
 
     @staticmethod
     def get_proxy(proxy: str = None):
-        if proxy:
-            return {
-            'http': f'http://{proxy}',
-            'https': f'http://{proxy}'
-        }
-        return None
+        return build_proxies_dict(proxy)
 
     def notify_message(self, message: str):
         def _send():
