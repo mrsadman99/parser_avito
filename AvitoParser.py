@@ -75,6 +75,15 @@ def main(page: ft.Page):
         retry_delay.value = config.retry_delay
         timeout.value = config.timeout
         block_threshold.value = config.block_threshold
+        retry_on_failure.value = config.retry_on_failure
+        retry_on_failure_delay.value = str(config.retry_on_failure_delay)
+        use_deepseek.value = config.use_deepseek
+        deepseek_api_key.value = config.deepseek_api_key or ""
+        deepseek_model.value = config.deepseek_model or "deepseek-chat"
+        deepseek_max_ads_per_run.value = str(config.deepseek_max_ads_per_run)
+        deepseek_batch_size.value = str(config.deepseek_batch_size)
+        min_deepseek_score.value = str(config.min_deepseek_score)
+        parse_full_description.value = config.parse_full_description
 
         page.update()
 
@@ -121,7 +130,16 @@ def main(page: ft.Page):
             "tg_only_text": tg_only_text.value,
             "retry_delay": to_int_safe(retry_delay.value, 5),
             "timeout": to_int_safe(timeout.value, 20),
-            "block_threshold": to_int_safe(block_threshold.value, 3)
+            "block_threshold": to_int_safe(block_threshold.value, 3),
+            "retry_on_failure": retry_on_failure.value,
+            "retry_on_failure_delay": to_int_safe(retry_on_failure_delay.value, 30),
+            "use_deepseek": use_deepseek.value,
+            "deepseek_api_key": deepseek_api_key.value,
+            "deepseek_model": deepseek_model.value or "deepseek-chat",
+            "deepseek_max_ads_per_run": to_int_safe(deepseek_max_ads_per_run.value, 30),
+            "deepseek_batch_size": to_int_safe(deepseek_batch_size.value, 5),
+            "min_deepseek_score": to_int_safe(min_deepseek_score.value, 0),
+            "parse_full_description": parse_full_description.value
         }}
 
         save_avito_config(config)
@@ -247,11 +265,18 @@ def main(page: ft.Page):
         is_run = True
         page.update()
         while is_run and not stop_event.is_set():
-            run_process()
+            parser = run_process()
             if not is_run:
                 return
-            logger.info("Пауза между повторами")
-            for _ in range(int(pause_general.value if pause_general.value else 300)):
+
+            # при неудачном проходе не ждём pause_general, повторяем быстрее
+            wait_secs = int(pause_general.value if pause_general.value else 300)
+            if retry_on_failure.value and parser.run_failed:
+                wait_secs = to_int_safe(retry_on_failure_delay.value, 30)
+                logger.info(f"Парсинг не удался — повтор через {wait_secs} сек (без pause_general)")
+
+            logger.info(f"Пауза между повторами: {wait_secs} сек")
+            for _ in range(wait_secs):
                 time.sleep(1)
                 if not is_run:
                     logger.info("Завершено")
@@ -339,6 +364,7 @@ def main(page: ft.Page):
         start_btn.disabled = False
         start_btn.text = "Старт"
         page.update()
+        return parser
 
 
     def panel(title: str, content: list[ft.Control], expanded=False):
@@ -553,6 +579,30 @@ def main(page: ft.Page):
     block_threshold = ft.TextField(label="Попыток перед разблокировкой", width=300, text_size=12, height=40, expand=True,
                                       tooltip=BLOCK_THRESHOLD_HELP)
 
+    retry_on_failure = ft.Checkbox("Быстрый повтор при неудачном проходе", value=True,
+                                   tooltip="Если парсинг завершился ошибками — не ждать pause_general, а повторить раньше")
+    retry_on_failure_delay = ft.TextField(label="Пауза перед быстрым повтором (сек)", value="30", width=250,
+                                          text_size=12, height=40,
+                                          tooltip="Сколько ждать перед повторным запуском, если проход не удался")
+
+    # DeepSeek — оценка цена/производительность
+    use_deepseek = ft.Checkbox("Оценивать объявления через DeepSeek (цена/производительность)", value=False,
+                               tooltip="Включить оценку объявлений нейросетью DeepSeek. Требуется API-ключ.")
+    deepseek_api_key = ft.TextField(label="API ключ DeepSeek (https://platform.deepseek.com)",
+                                    password=True, can_reveal_password=True, expand=True,
+                                    tooltip="Ключ API DeepSeek. Получить: https://platform.deepseek.com")
+    deepseek_model = ft.TextField(label="Модель DeepSeek", value="deepseek-chat", width=250, text_size=12, height=40,
+                                  tooltip="deepseek-chat (рекомендуется) или deepseek-reasoner")
+    deepseek_max_ads_per_run = ft.TextField(label="Макс. объявлений на проход", value="30", width=200, text_size=12, height=40,
+                                            tooltip="Сколько объявлений оценивать за один проход (ограничение расхода API)")
+    deepseek_batch_size = ft.TextField(label="Объявлений за один запрос", value="5", width=200, text_size=12, height=40,
+                                       tooltip="Сколько объявлений отправлять в одном запросе к DeepSeek (меньше вызовов = дешевле)")
+    min_deepseek_score = ft.TextField(label="Мин. оценка (0-100)", value="0", width=180, text_size=12, height=40,
+                                      tooltip="Объявления с оценкой ниже порога будут отброшены")
+    parse_full_description = ft.Checkbox("Открывать страницы и брать ПОЛНОЕ описание", value=False,
+                                         tooltip="Дополнительно открывать каждое объявление для полного описания "
+                                                 "(в выдаче API описание обрезано ~250 символов)")
+
 
     accordion = ft.ExpansionPanelList(
         expand_icon_color=ft.colors.GREEN_300,
@@ -683,9 +733,20 @@ def main(page: ft.Page):
                     ft.Row([pause_general, pause_between_links, block_threshold]),
                     ft.Row([max_count_of_retry, retry_delay, timeout]),
                     ft.Row([one_time_start, one_file_for_link]),
+                    ft.Row([retry_on_failure, retry_on_failure_delay]),
                     ft.Row([parse_views,
                             #parse_phone,
                             save_xlsx]),
+                ]
+            ),
+
+            panel(
+                "🤖 DeepSeek (цена/производительность)",
+                [
+                    use_deepseek,
+                    deepseek_api_key,
+                    ft.Row([deepseek_model, deepseek_max_ads_per_run, deepseek_batch_size, min_deepseek_score]),
+                    parse_full_description,
                 ]
             ),
 

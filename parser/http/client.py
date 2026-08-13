@@ -77,6 +77,31 @@ class HttpClient:
         self._client.close()
         self._client = self._build_client()
 
+    def get_current_ip(self) -> str | None:
+        """Определяет текущий внешний IP (через настроенный прокси, если он есть)."""
+        proxy = self.proxy.get_httpx_proxy() if self.proxy else None
+        proxies = {"http": proxy, "https": proxy} if proxy else None
+        services = (
+            "https://api.ipify.org?format=json",
+            "https://ipinfo.io/ip",
+        )
+        for service in services:
+            try:
+                resp = requests.get(
+                    service,
+                    proxies=proxies,
+                    timeout=10,
+                    impersonate="chrome",
+                )
+                if resp.status_code != 200:
+                    continue
+                if "ipify" in service:
+                    return resp.json().get("ip")
+                return resp.text.strip()
+            except Exception:
+                continue
+        return None
+
     def request(self, method: str, url: str, **kwargs):
         last_exc = None
 
@@ -106,6 +131,11 @@ class HttpClient:
                             self.cookies.handle_block()
                         self.proxy.handle_block()
                         self._reset_client()
+                        new_ip = self.get_current_ip()
+                        if new_ip:
+                            logger.success(f"Прокси обновлён, новый IP: {new_ip}")
+                        else:
+                            logger.warning("Не удалось определить IP после смены прокси")
                         self._block_attempts = 0
 
                     time.sleep(self.retry_delay)

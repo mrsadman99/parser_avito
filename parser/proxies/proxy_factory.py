@@ -13,7 +13,11 @@ def build_proxy(config: AvitoConfig) -> Proxy:
 
     if config.proxy_string and config.proxy_change_url:
         logger.info("Прокси определен как мобильный")
-        return MobileProxy(config.proxy_string, config.proxy_change_url)
+        return MobileProxy(
+            config.proxy_string,
+            config.proxy_change_url,
+            change_ip_proxy=config.proxy_notifier,
+        )
 
     if config.proxy_string:
         logger.info("Прокси определен как серверный")

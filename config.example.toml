@@ -1,0 +1,75 @@
+# ============================================================
+# Пример конфигурации Avito Parser — БЕЗ секретов (для git)
+#
+# Скопируйте этот файл в config.toml и заполните своими данными:
+#   cp config.example.toml config.toml
+#
+# ВАЖНО: config.toml добавлен в .gitignore и НЕ пушится в git.
+# Заполненные токены/ключи/пароли никогда не должны попадать в репозиторий.
+# ============================================================
+
+[avito]
+# --- Telegram-уведомления ---
+tg_token = ""                        # токен бота от @BotFather
+tg_chat_id = []                      # chat_id получателей (можно несколько)
+
+# --- VK-уведомления ---
+vk_token = ""                        # ключ API сообщества VK
+vk_user_id = []                      # ID получателей VK
+
+# --- Ссылки для мониторинга ---
+urls = [
+    "https://www.avito.ru/novosibirsk/nastolnye_kompyutery?q=игровой+пк",
+]
+count = 1                            # сколько страниц объявлений брать за проход
+
+# --- Фильтры ---
+keys_word_white_list = []            # оставить только с этими словами (заголовок/описание)
+keys_word_black_list = []            # исключить эти слова
+seller_black_list = []               # чёрный список продавцов
+max_price = 99999999                 # верхняя граница цены
+min_price = 0                        # нижняя граница цены
+geo = ""                             # фильтр по адресу/региону
+max_age = 0                          # макс. возраст объявления, сек (0 = без ограничения)
+ignore_reserv = true                 # пропускать «Зарезервировано»
+ignore_promotion = false             # пропускать продвигаемые
+
+# --- Прокси и обход блокировок ---
+proxy_string = ""                    # формат: логин:пароль@хост:порт
+proxy_change_url = ""                # URL смены IP мобильного прокси (changeip)
+use_webdriver = true                 # использовать браузер (Playwright)
+use_bypass_api = false               # true — использовать SPFA (spfa.ru)
+cookies_api_key = ""                 # API-ключ SPFA
+use_own_cookies = false              # true — свои cookies (get_cookies_cli.py)
+purchase_cooldown = 600              # пауза между покупками cookies SPFA, сек
+parse_phone = false                  # парсить телефоны (функция пока не активна)
+
+# --- Паузы и повторы ---
+pause_general = 300                  # пауза между проходами, сек
+pause_between_links = 1              # пауза между ссылками, сек
+max_count_of_retry = 5               # макс. повторов запроса
+retry_delay = 5                      # пауза между повторами, сек
+timeout = 20                         # таймаут запроса, сек
+block_threshold = 3                  # блокировок до «обработки бана»
+retry_on_failure = true              # быстрый повтор при неудачном проходе
+retry_on_failure_delay = 30          # пауза перед быстрым повтором, сек
+
+# --- Уведомления ---
+proxy_notifier = ""                  # прокси для Telegram (если недоступен напрямую)
+tg_only_text = false                 # true — только текст без фото
+
+# --- Режим и сохранение ---
+one_time_start = false               # true — однократный проход и завершение
+one_file_for_link = false            # true — отдельный Excel на каждую ссылку
+parse_views = false                  # парсить просмотры (доп. запросы на страницы)
+save_xlsx = true                     # сохранять в Excel
+
+# --- Оценка через DeepSeek (цена/производительность) ---
+use_deepseek = false
+deepseek_api_key = ""                # ключ от platform.deepseek.com
+deepseek_model = "deepseek-chat"
+deepseek_max_ads_per_run = 30        # объявлений за проход
+deepseek_batch_size = 5              # объявлений в одном запросе к API
+deepseek_history_size = 10           # примеров из истории для калибровки
+min_deepseek_score = 0               # отсев ниже порога
+parse_full_description = false       # полные описания (открывать страницы)

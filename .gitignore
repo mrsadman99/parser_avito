@@ -1,2 +1,19 @@
-# created by virtualenv automatically
+# Виртуальное окружение
+venv/
 .secret.txt
+
+# Python-кэш
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Рабочие данные парсера (ключи, cookies, история оценок)
+storage/
+
+# Основной конфиг с секретами — в git пушим только config.example.toml
+config.toml
+
+# Логи и результаты
+logs/
+result/
+database.db

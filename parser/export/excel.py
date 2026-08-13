@@ -28,7 +28,9 @@ class ExcelStorage(ResultStorage):
         "Поднято",
         "Просмотры (всего)",
         "Просмотры (сегодня)",
-        "Телефон"
+        "Телефон",
+        "AI оценка",
+        "AI причина"
     ]
 
     def __init__(self, file_path: Path):
@@ -119,6 +121,8 @@ class ExcelStorage(ResultStorage):
                     ad.total_views or "",
                     ad.today_views or "",
                     self.excel_safe(ad.phone or ""),
+                    ad.ai_score or "",
+                    self.excel_safe(ad.ai_reason or ""),
                 ]
 
                 sheet.append(row)

@@ -1,3 +1,4 @@
+import html as html_lib
 import json
 import random
 import re
@@ -17,6 +18,7 @@ from hide_private_data import log_config
 from integrations.notifications.factory import build_notifier
 from load_config import load_avito_config
 from models import ItemsResponse, Item
+from parser.ai.deepseek import DeepSeekEvaluator
 from parser.cookies.factory import build_cookies_provider
 from parser.export.factory import build_result_storage
 from parser.http.client import HttpClient
@@ -56,8 +58,20 @@ class AvitoParse:
             block_threshold=config.block_threshold
         )
         self.ads_filter = AdsFilter(config=config, is_viewed_fn=self.is_viewed)
+        self.deepseek = None
+        if config.use_deepseek and config.deepseek_api_key:
+            self.deepseek = DeepSeekEvaluator(
+                api_key=config.deepseek_api_key,
+                model=config.deepseek_model,
+                history_size=config.deepseek_history_size,
+            )
+            logger.info("DeepSeek-оценка включена")
         log_config(config=self.config, version=VERSION)
 
+    @property
+    def run_failed(self) -> bool:
+        """Проход считается неудачным, если все запросы завершились ошибкой/блокировкой."""
+        return self.bad_request_count > 0 and self.good_request_count == 0
 
     def get_proxy_obj(self) -> Proxy | None:
         if all([self.config.proxy_string, self.config.proxy_change_url]):
@@ -135,6 +149,16 @@ class AvitoParse:
         if not self.config.one_file_for_link:
             self.result_storage = build_result_storage(config=self.config)
 
+        current_ip = self.http.get_current_ip()
+        if current_ip:
+            if self.config.proxy_string:
+                logger.info(f"🌐 IP (через прокси): {current_ip}")
+            else:
+                logger.info(f"🌐 Текущий IP: {current_ip}")
+        else:
+            logger.warning("Не удалось определить текущий IP")
+
+
         api_urls = {}
         for source_url in self.config.urls:
             if self.stop_event and self.stop_event.is_set():
@@ -194,6 +218,14 @@ class AvitoParse:
                     break
 
                 filtered_ads = self.filter_ads(ads=ads)
+
+                # --- Оценка через DeepSeek (цена/производительность) ---
+                if self.deepseek and filtered_ads:
+                    filtered_ads = self.parse_full_description(ads=filtered_ads)
+                    filtered_ads = self.rate_ads(ads=filtered_ads)
+                else:
+                    filtered_ads = self.parse_full_description(ads=filtered_ads)
+
                 self.notifier.notify_many(ads=filtered_ads)
                 filtered_ads = self.parse_views(ads=filtered_ads)
                 filtered_ads = self.parse_phone(ads=filtered_ads)
@@ -286,6 +318,112 @@ class AvitoParse:
 
         return ads
 
+    def parse_full_description(self, ads: list[Item]) -> list[Item]:
+        """Открывает страницу каждого объявления и подтягивает ПОЛНОЕ описание.
+
+        В выдаче API каталога описание обрезано (~250 символов), поэтому для
+        полного текста делаем отдельный запрос на страницу объявления.
+        """
+        if not (self.config.parse_full_description or self.config.use_deepseek):
+            return ads
+
+        logger.info("Начинаю парсинг полных описаний")
+        for ad in ads:
+            try:
+                if self.stop_event and self.stop_event.is_set():
+                    break
+                html_code_full_page = self.fetch_data(url=f"https://www.avito.ru{ad.urlPath}")
+                if not html_code_full_page:
+                    continue
+                full_description = self._extract_description(html=html_code_full_page)
+                if full_description:
+                    ad.description = full_description
+                delay = random.uniform(0.1, 0.9)
+                time.sleep(delay)
+            except Exception as err:
+                logger.warning(f"Ошибка при парсинге описания {ad.urlPath}: {err}")
+                continue
+        return ads
+
+    def rate_ads(self, ads: list[Item]) -> list[Item]:
+        """Оценивает объявления через DeepSeek, фильтрует по порогу и сортирует.
+
+        Результат: список отсортирован по убыванию оценки цена/производительность.
+        Лучшие объявления сохраняются в историю для калибровки последующих оценок.
+        Оценка идёт пакетами по deepseek_batch_size (один запрос = пачка).
+        """
+        batch_ads = ads[: self.config.deepseek_max_ads_per_run]
+        batch_size = max(1, self.config.deepseek_batch_size)
+        logger.info(
+            f"Оцениваю {len(batch_ads)} из {len(ads)} объявлений через DeepSeek "
+            f"(пакетами по {batch_size})"
+        )
+        for start in range(0, len(batch_ads), batch_size):
+            if self.stop_event and self.stop_event.is_set():
+                break
+            chunk = batch_ads[start : start + batch_size]
+            self.deepseek.evaluate_batch(chunk)
+
+        rated = [ad for ad in ads if ad.ai_score >= self.config.min_deepseek_score]
+        rated.sort(key=lambda ad: ad.ai_score, reverse=True)
+
+        for ad in rated[: self.config.deepseek_history_size]:
+            self.deepseek.add_to_history(ad)
+
+        logger.info(f"После оценки осталось {len(rated)} объявлений")
+        return rated
+
+    @staticmethod
+    def _extract_description(html: str) -> str | None:
+        """Достаёт полное описание со страницы объявления (несколько стратегий)."""
+        soup = BeautifulSoup(html, "html.parser")
+
+        # 1) HTML-маркер блока описания
+        marker = soup.select_one('[data-marker="item-view/item-description"]')
+        if marker:
+            text = marker.get_text("\n", strip=True)
+            if text and len(text) > 50:
+                return text
+
+        # 2) JSON-LD (schema.org) — поле description
+        for script in soup.select('script[type="application/ld+json"]'):
+            try:
+                data = json.loads(script.string or "")
+            except (ValueError, TypeError):
+                continue
+            found = AvitoParse._find_json_value(data, "description", min_len=50)
+            if found:
+                return found
+
+        # 3) mfe-state JSON внутри страницы — рекурсивный поиск description
+        for script in soup.select('script[data-mfe-state="true"]'):
+            try:
+                data = json.loads(html_lib.unescape(script.text))
+            except (ValueError, TypeError):
+                continue
+            found = AvitoParse._find_json_value(data, "description", min_len=50)
+            if found:
+                return found
+
+        return None
+
+    @staticmethod
+    def _find_json_value(data, key: str, min_len: int = 0):
+        """Рекурсивно ищет первое строковое значение по ключу в JSON-дереве."""
+        if isinstance(data, dict):
+            for k, v in data.items():
+                if k == key and isinstance(v, str) and len(v) >= min_len:
+                    return v
+                found = AvitoParse._find_json_value(v, key, min_len)
+                if found:
+                    return found
+        elif isinstance(data, list):
+            for item in data:
+                found = AvitoParse._find_json_value(item, key, min_len)
+                if found:
+                    return found
+        return None
+
     def parse_phone(self, ads: list[Item]) -> list[Item]:
         if not self.config.parse_phone or self.config.parse_phone:
             # future feat, not ready yet
@@ -348,6 +486,14 @@ if __name__ == "__main__":
             if config.one_time_start:
                 logger.info("Парсинг завершен т.к. включён one_time_start в настройках")
                 break
+            if config.retry_on_failure and parser.run_failed:
+                logger.info(
+                    f"Парсинг не удался ({parser.bad_request_count} ошибок, "
+                    f"{parser.good_request_count} успешных). Повтор через "
+                    f"{config.retry_on_failure_delay} сек (без pause_general)"
+                )
+                time.sleep(config.retry_on_failure_delay)
+                continue
             logger.info(f"Парсинг завершен. Пауза {config.pause_general} сек")
             time.sleep(config.pause_general)
         except Exception as err:

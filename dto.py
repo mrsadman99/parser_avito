@@ -56,4 +56,16 @@ class AvitoConfig:
     retry_delay: int = 5
     timeout: int = 20
     block_threshold: int = 3
+    # Повторный запуск при неудачном проходе
+    retry_on_failure: bool = True
+    retry_on_failure_delay: int = 30
+    # Оценка через DeepSeek (цена/производительность)
+    use_deepseek: bool = False
+    deepseek_api_key: str = None
+    deepseek_model: str = "deepseek-chat"
+    deepseek_max_ads_per_run: int = 30
+    deepseek_batch_size: int = 5
+    deepseek_history_size: int = 10
+    min_deepseek_score: int = 0
+    parse_full_description: bool = False
 

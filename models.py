@@ -148,6 +148,9 @@ class Item(BaseModel):
     total_views: int | None = None
     today_views: int | None = None
     phone: str | None = None
+    ai_score: float = 0.0
+    ai_reason: str = ""
+    ai_specs: Optional[dict] = None
 
 
 class ItemsResponse(BaseModel):
