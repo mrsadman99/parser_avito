@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Запуск веб-сервера (React), REST API и парсера одной командой.
+"""Запуск веб-приложения, REST API и парсера одной командой.
 
-    python run.py
+    python run.py          # production: собирает фронт и раздаёт его через API (один порт)
+    python run.py --dev    # dev: Vite dev-сервер + API (для разработки с HMR)
 
-Порты берутся из config.toml: server_port (REST API), web_server_port (React).
-Ссылки для парсинга берутся из веб-интерфейса (storage/web.db) динамически;
-если пользователи ещё не добавили ссылки — используется [avito.links] из config.toml.
+Порты берутся из config.toml: server_port (REST API + фронт), web_server_port (только --dev).
+Интерфейс — server_host (по умолчанию 127.0.0.1; для публикации наружу лучше ставить
+за reverse-proxy с HTTPS, а не 0.0.0.0 напрямую).
 """
 
+import argparse
 import subprocess
 import sys
 import time
@@ -21,29 +23,43 @@ WEB_DIR = Path("web-server")
 
 
 def ensure_web_deps() -> None:
-    """Ставит npm-зависимости при первом запуске."""
     if (WEB_DIR / "node_modules").exists():
         return
     print("Устанавливаю зависимости web-server (npm install)...")
     subprocess.run(["npm", "install"], cwd=WEB_DIR, check=True)
 
 
+def build_frontend() -> None:
+    if (WEB_DIR / "dist").exists():
+        return
+    ensure_web_deps()
+    print("Собираю фронтенд (npm run build)...")
+    subprocess.run(["npm", "run", "build"], cwd=WEB_DIR, check=True)
+
+
 def main():
+    args = argparse.ArgumentParser(description="Запуск веб-приложения, API и парсера")
+    args.add_argument("--dev", action="store_true", help="Vite dev-сервер вместо собранного фронта")
+    args = args.parse_args()
+
     config = load_avito_config("config.toml")
 
     from server import store
     store.init_db()
 
-    ensure_web_deps()
+    web = None
+    if args.dev:
+        ensure_web_deps()
+        web = subprocess.Popen(
+            ["npm", "run", "dev", "--", "--port", str(config.web_server_port)],
+            cwd=WEB_DIR,
+        )
+    else:
+        build_frontend()
 
     api = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "server.main:app",
-         "--host", "0.0.0.0", "--port", str(config.server_port)]
-    )
-
-    web = subprocess.Popen(
-        ["npm", "run", "dev", "--", "--port", str(config.web_server_port)],
-        cwd=WEB_DIR,
+         "--host", config.server_host, "--port", str(config.server_port)]
     )
 
     from parser_cls import AvitoParse
@@ -52,31 +68,33 @@ def main():
         return store.get_all_links()
 
     print(f"REST API:  http://localhost:{config.server_port}")
-    print(f"Web:       http://localhost:{config.web_server_port}")
+    if args.dev:
+        print(f"Web (dev): http://localhost:{config.web_server_port}")
+    else:
+        print(f"Web:       http://localhost:{config.server_port}  (собранный фронт)")
     print("Парсер:    запущен (Ctrl+C — остановить всё)")
 
     try:
         while True:
-            parser = AvitoParse(config, links_provider=links_provider)
-            parser.parse()
+            avito = AvitoParse(config, links_provider=links_provider)
+            avito.parse()
             if config.one_time_start:
                 logger.info("Парсинг завершён (one_time_start = true)")
                 break
-            if config.retry_on_failure and parser.run_failed:
-                logger.info(
-                    f"Парсинг не удался. Повтор через {config.retry_on_failure_delay} сек"
-                )
+            if config.retry_on_failure and avito.run_failed:
+                logger.info(f"Парсинг не удался. Повтор через {config.retry_on_failure_delay} сек")
                 time.sleep(config.retry_on_failure_delay)
                 continue
             time.sleep(config.pause_general)
     except KeyboardInterrupt:
         print("\nОстановка...")
     finally:
-        for proc in (api, web):
-            if proc.poll() is None:
-                proc.terminate()
+        api.terminate()
+        if web is not None:
+            web.terminate()
         api.wait()
-        web.wait()
+        if web is not None:
+            web.wait()
 
 
 if __name__ == "__main__":

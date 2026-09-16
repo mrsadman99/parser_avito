@@ -51,9 +51,11 @@ save_xlsx = true                     # сохранять в Excel
 parse_full_description = false       # полные описания (открывать страницы)
 
 # --- Веб-приложение (server/ + web-server/, запуск: python run.py) ---
-server_port = 8000                   # порт REST API
-web_server_port = 3000               # порт React dev-сервера
+server_port = 8000                   # порт REST API + фронтенд
+web_server_port = 3000               # порт React dev-сервера (только python run.py --dev)
 admin_password = ""                  # пароль для входа админа (логин: admin)
+server_host = "127.0.0.1"            # интерфейс API; 0.0.0.0 — слушать наружу (лучше за reverse-proxy)
+cors_origins = []                    # доп. разрешённые origins, напр. ["https://example.com"]
 
 
 # --- Camoufox (реальный браузер для запросов к поиску) ---

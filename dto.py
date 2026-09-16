@@ -109,3 +109,5 @@ class AvitoConfig:
     server_port: int = 8000            # порт REST API
     web_server_port: int = 3000        # порт React dev-сервера
     admin_password: str = ""           # пароль админки (логин: admin)
+    server_host: str = "127.0.0.1"     # интерфейс API (0.0.0.0 — слушать наружу)
+    cors_origins: List[str] = field(default_factory=list)  # доп. разрешённые origins
