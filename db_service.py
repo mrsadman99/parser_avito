@@ -2,7 +2,6 @@ import sqlite3
 from datetime import datetime, timezone
 
 from models import Item
-from parser.specs import extract_specs
 
 
 def _now_iso() -> str:
@@ -13,22 +12,15 @@ def _now_iso() -> str:
 # Колонки, которые должны быть в таблице viewed (для миграции старых БД)
 _MIGRATION_COLUMNS = {
     "scanned_at": "TEXT",
-    "ai_score": "REAL",
     "description": "TEXT",
-    "cpu": "TEXT",
-    "socket": "TEXT",
-    "ram": "TEXT",
-    "storage": "TEXT",
-    "gpu": "TEXT",
+    "source_url": "TEXT",
+    "title": "TEXT",
+    "ad_url": "TEXT",
+    "sort_time": "INTEGER",
+    "seller_rating": "REAL",
+    "seller_reviews": "INTEGER",
+    "photo_url": "TEXT",
 }
-
-
-def _ad_specs(ad: Item) -> dict:
-    """Характеристики ПК: из DeepSeek (ai_specs), иначе из текста regex'ом."""
-    specs = getattr(ad, "ai_specs", None)
-    if not specs:
-        specs = extract_specs(f"{ad.title or ''} {ad.description or ''}")
-    return specs or {}
 
 
 def _ad_desc(ad: Item) -> str:
@@ -62,13 +54,14 @@ class SQLiteDBHandler:
                     id INTEGER,
                     price INTEGER,
                     scanned_at TEXT,
-                    ai_score REAL,
                     description TEXT,
-                    cpu TEXT,
-                    socket TEXT,
-                    ram TEXT,
-                    storage TEXT,
-                    gpu TEXT
+                    source_url TEXT,
+                    title TEXT,
+                    ad_url TEXT,
+                    sort_time INTEGER,
+                    seller_rating REAL,
+                    seller_reviews INTEGER,
+                    photo_url TEXT
                 )
                 """
             )
@@ -90,61 +83,64 @@ class SQLiteDBHandler:
             conn.commit()
 
     def add_record(self, ad: Item):
-        """Добавляет новую запись в таблицу viewed (со всеми данными объявления)."""
-        specs = _ad_specs(ad)
+        """Добавляет новую запись в таблицу viewed."""
         with sqlite3.connect(self.db_name) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 INSERT INTO viewed
-                    (id, price, scanned_at, ai_score, description, cpu, socket, ram, storage, gpu)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, price, scanned_at, description)
+                VALUES (?, ?, ?, ?)
                 """,
                 (
                     ad.id,
                     ad.priceDetailed.value,
                     _now_iso(),
-                    getattr(ad, "ai_score", 0) or 0,
                     _ad_desc(ad),
-                    specs.get("cpu", ""),
-                    specs.get("socket", ""),
-                    specs.get("ram", ""),
-                    specs.get("storage", ""),
-                    specs.get("gpu", ""),
                 ),
             )
             conn.commit()
 
-    def add_record_from_page(self, ads: list[Item]):
-        """Добавляет несколько записей в таблицу viewed (со всеми данными объявлений)."""
+    def add_record_from_page(self, ads: list[Item], source_url: str = None):
+        """Добавляет несколько записей в таблицу viewed (с привязкой к ссылке)."""
         now = _now_iso()
-        records = []
-        for ad in ads:
-            specs = _ad_specs(ad)
-            records.append((
+        records = [
+            (
                 ad.id,
                 ad.priceDetailed.value,
                 now,
-                getattr(ad, "ai_score", 0) or 0,
                 _ad_desc(ad),
-                specs.get("cpu", ""),
-                specs.get("socket", ""),
-                specs.get("ram", ""),
-                specs.get("storage", ""),
-                specs.get("gpu", ""),
-            ))
+                source_url,
+                (ad.title or "")[:500],
+                f"https://www.avito.ru{ad.urlPath}" if ad.urlPath else "",
+                ad.sortTimeStamp,
+                ad.seller_rating,
+                ad.seller_reviews,
+                ad.main_image_url(),
+            )
+            for ad in ads
+        ]
 
         with sqlite3.connect(self.db_name) as conn:
             cursor = conn.cursor()
             cursor.executemany(
                 """
                 INSERT OR REPLACE INTO viewed
-                    (id, price, scanned_at, ai_score, description, cpu, socket, ram, storage, gpu)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, price, scanned_at, description, source_url, title, ad_url, sort_time, seller_rating, seller_reviews, photo_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 records,
             )
             conn.commit()
+
+    def list_ads(self, source_url: str) -> list[dict]:
+        """Запарсенные объявления по исходной ссылке."""
+        with sqlite3.connect(self.db_name) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM viewed WHERE source_url = ?", (source_url,)
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def record_exists(self, record_id, price):
         """Проверяет, существует ли запись с заданными id и price."""

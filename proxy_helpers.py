@@ -1,10 +1,11 @@
 """
 Утилита для построения словаря proxies из строки прокси.
 
-Строит словарь {http, socks5} (без https). Адрес всегда в формате
+Строит словарь {http, https, socks5}. Адрес всегда в формате
 {login}:{password}@{address}:{port} (или {address}:{port} без авторизации).
 
-Для SOCKS5 требуется установленный пакет PySocks (requests[socks]).
+https-ключ обязателен, иначе requests не маршрутизирует https-запросы
+(Telegram, changeip) через прокси. Для SOCKS5 требуется PySocks (requests[socks]).
 """
 
 # Требование API mobileproxy.space: программный вызов changeip
@@ -17,16 +18,17 @@ BROWSER_USER_AGENT = (
 
 
 def build_proxies_dict(proxy: str):
-    """Строит словарь прокси: http + socks5 (без https).
+    """Строит словарь прокси: http + https + socks5.
 
     Адрес всегда передаётся в формате {login}:{password}@{address}:{port}
     (или просто {address}:{port} без авторизации). Если схему случайно указали,
-    она отбрасывается — оба варианта строятся из одного адреса.
+    она отбрасывается — варианты строятся из одного адреса.
 
     Пример:
         "login:pass@127.0.0.1:5222"
         -> {
             "http":   "http://login:pass@127.0.0.1:5222",
+            "https":  "http://login:pass@127.0.0.1:5222",
             "socks5": "socks5://login:pass@127.0.0.1:5222",
         }
     """
@@ -37,5 +39,6 @@ def build_proxies_dict(proxy: str):
         addr = addr.split("://", 1)[1]
     return {
         "http": f"http://{addr}",
+        "https": f"http://{addr}",
         "socks5": f"socks5://{addr}",
     }

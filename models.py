@@ -97,6 +97,12 @@ class IvaStep(BaseModel):
     default: bool
 
 
+class Rating(BaseModel):
+    score: Optional[float] = None
+    summary: Optional[str] = None
+    showChevronEnd: Optional[bool] = None
+
+
 class Item(BaseModel):
     id: int | dict | None = None
     categoryId: int | dict | None = None
@@ -143,15 +149,33 @@ class Item(BaseModel):
     closedItemsText: str | None = None
     closestAddressId: int | None = None
     isSparePartsCompatibility: bool | None = None
+    rating: Rating | None = None
     sellerId: str | None = None
+    seller_rating: float | None = None
+    seller_reviews: int | None = None
     isPromotion: bool = False
     total_views: int | None = None
     today_views: int | None = None
     phone: str | None = None
-    ai_score: float = 0.0
-    ai_reason: str = ""
-    ai_specs: Optional[dict] = None
     scanned_at: Optional[str] = None
+
+    def main_image_url(self) -> str | None:
+        """URL самого большого главного фото (первое изображение объявления)."""
+        images = self.images
+        if not images:
+            return None
+        root = getattr(images[0], "root", None)
+        if not isinstance(root, dict) or not root:
+            return None
+
+        def area(key) -> int:
+            try:
+                w, h = str(key).split("x")
+                return int(w) * int(h)
+            except ValueError:
+                return 0
+
+        return str(root[max(root.keys(), key=area)])
 
 
 class ItemsResponse(BaseModel):

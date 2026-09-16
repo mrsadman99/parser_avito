@@ -22,17 +22,3 @@ def get_price(ad: Item) -> str:
     return normalize_text(
         getattr(price, "value", price)
     )
-
-
-def get_first_image(ad: Item) -> str | None:
-    if not getattr(ad, "images", None):
-        return None
-
-    def largest(img):
-        return max(
-            img.root.keys(),
-            key=lambda k: int(k.split("x")[0]) * int(k.split("x")[1])
-        )
-
-    img = ad.images[0]
-    return str(img.root[largest(img)])

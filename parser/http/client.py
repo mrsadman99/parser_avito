@@ -107,6 +107,9 @@ class HttpClient:
     def request(self, method: str, url: str, **kwargs):
         last_exc = None
 
+        current_ip = self.get_current_ip()
+        logger.info(f"🌐 Запрос {method.upper()} {url} — IP: {current_ip or 'не определён'}")
+
         for attempt in range(1, self.max_retries + 1):
             try:
                 response = self._client.request(

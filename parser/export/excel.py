@@ -1,6 +1,7 @@
 from pathlib import Path
 from threading import Lock
 from datetime import datetime
+import re
 
 from openpyxl import Workbook, load_workbook
 from loguru import logger
@@ -8,6 +9,8 @@ from tzlocal import get_localzone
 
 from parser.export.base import ResultStorage
 from models import Item
+
+SCAN_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
 
 class ExcelStorage(ResultStorage):
     """
@@ -30,8 +33,8 @@ class ExcelStorage(ResultStorage):
         "Просмотры (всего)",
         "Просмотры (сегодня)",
         "Телефон",
-        "AI оценка",
-        "AI причина"
+        "Рейтинг продавца",
+        "Кол-во оценок",
     ]
 
     def __init__(self, file_path: Path):
@@ -46,6 +49,8 @@ class ExcelStorage(ResultStorage):
         # создаём файл, если его нет
         if not self.file_path.exists():
             self._create_file()
+        else:
+            self._ensure_schema()
 
     def _create_file(self) -> None:
         workbook = Workbook()
@@ -53,6 +58,52 @@ class ExcelStorage(ResultStorage):
         sheet.title = "Data"
         sheet.append(self.headers)
         workbook.save(self.file_path)
+
+    def _ensure_schema(self) -> None:
+        """Приводит существующий файл к актуальному набору колонок.
+
+        - добавляет недостающую колонку «Дата сканирования» в старых файлах;
+        - удаляет лишние колонки справа (например, AI-колонки), чтобы шапка
+          и строки были однородными.
+        """
+        try:
+            workbook = load_workbook(self.file_path)
+            sheet = workbook.active
+
+            header = [cell.value for cell in sheet[1]][: len(self.headers)]
+            extra_cols = sheet.max_column != len(self.headers)
+            if header == self.headers and not extra_cols:
+                return
+
+            max_col = len(self.headers)
+
+            # 1) нормализуем строки данных
+            for row_idx in range(2, sheet.max_row + 1):
+                values = [cell.value for cell in sheet[row_idx]]
+                if not any(v is not None for v in values):
+                    continue
+                # в старых файлах нет колонки сканирования — вставляем её
+                scan_cell = values[5] if len(values) > 5 else None
+                if not (isinstance(scan_cell, str) and SCAN_DATE_RE.match(scan_cell)):
+                    values = values[:5] + [None] + values[5:]
+                values = values[:max_col]
+                values += [None] * (max_col - len(values))
+                for col_idx, value in enumerate(values, start=1):
+                    # присваиваем через .value: cell(..., value=None) не очищает ячейку
+                    sheet.cell(row=row_idx, column=col_idx).value = value
+
+            # 2) удаляем лишние колонки справа
+            if sheet.max_column > max_col:
+                sheet.delete_cols(max_col + 1, sheet.max_column - max_col)
+
+            # 3) переписываем шапку
+            for idx, title in enumerate(self.headers, start=1):
+                sheet.cell(row=1, column=idx).value = title
+
+            workbook.save(self.file_path)
+            logger.info("Excel: шапка приведена к актуальным колонкам")
+        except Exception as err:
+            logger.warning(f"Excel: не удалось проверить шапку файла: {err}")
 
     @staticmethod
     def _get_ad_time(ad: Item):
@@ -67,7 +118,7 @@ class ExcelStorage(ResultStorage):
         """Дата сканирования: из UTC (scanned_at) в локальное время пользователя."""
         scanned_at = getattr(ad, "scanned_at", None)
         if not scanned_at:
-            return ""
+            return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
             dt = datetime.fromisoformat(scanned_at)
             return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
@@ -135,8 +186,8 @@ class ExcelStorage(ResultStorage):
                     ad.total_views or "",
                     ad.today_views or "",
                     self.excel_safe(ad.phone or ""),
-                    ad.ai_score or "",
-                    self.excel_safe(ad.ai_reason or ""),
+                    ad.seller_rating if ad.seller_rating is not None else "",
+                    ad.seller_reviews if ad.seller_reviews is not None else "",
                 ]
 
                 sheet.append(row)

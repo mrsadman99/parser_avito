@@ -9,23 +9,14 @@
 # ============================================================
 
 [avito]
-# --- Telegram-уведомления ---
-tg_token = ""                        # токен бота от @BotFather
-tg_chat_id = []                      # chat_id получателей (можно несколько)
-
-# --- VK-уведомления ---
-vk_token = ""                        # ключ API сообщества VK
-vk_user_id = []                      # ID получателей VK
-
 # --- Ссылки для мониторинга ---
-urls = [
-    "https://www.avito.ru/novosibirsk/nastolnye_kompyutery?q=игровой+пк",
-]
+# Ссылки задаются в секции [avito.links] в конце файла.
+# Для каждой ссылки можно указать свою цену и ключевые слова.
 count = 1                            # сколько страниц объявлений брать за проход
 
-# --- Фильтры ---
-keys_word_white_list = []            # оставить только с этими словами (заголовок/описание)
-keys_word_black_list = []            # исключить эти слова
+# --- Фильтры (глобальные, по умолчанию для всех ссылок) ---
+white_list = []                      # оставить только с этими словами (заголовок/описание)
+black_list = []                      # исключить эти слова
 seller_black_list = []               # чёрный список продавцов
 max_price = 99999999                 # верхняя граница цены
 min_price = 0                        # нижняя граница цены
@@ -34,14 +25,9 @@ max_age = 0                          # макс. возраст объявлен
 ignore_reserv = true                 # пропускать «Зарезервировано»
 ignore_promotion = false             # пропускать продвигаемые
 
-# --- Прокси и обход блокировок ---
-proxy_string = ""                    # формат: логин:пароль@хост:порт
-proxy_change_url = ""                # URL смены IP мобильного прокси (changeip)
-# Дополнительные ссылки смены IP (fallback): если основная не смогла сменить IP,
-# парсер пробует следующую из списка.
-# proxy_change_urls = ["https://changeip.mobileproxy.space/?proxy_key=KEY2", "https://changeip.mobileproxy.space/?proxy_key=KEY3"]
+# --- Обход блокировок (SPFA / cookies) ---
 use_webdriver = true                 # использовать браузер (Playwright)
-use_bypass_api = false               # true — использовать SPFA (spfa.ru)
+use_bypass_api = false               # true — использовать SPFA (spfa.pro)
 cookies_api_key = ""                 # API-ключ SPFA
 use_own_cookies = false              # true — свои cookies (get_cookies_cli.py)
 purchase_cooldown = 600              # пауза между покупками cookies SPFA, сек
@@ -57,22 +43,68 @@ block_threshold = 3                  # блокировок до «обрабо�
 retry_on_failure = true              # быстрый повтор при неудачном проходе
 retry_on_failure_delay = 30          # пауза перед быстрым повтором, сек
 
-# --- Уведомления ---
-proxy_notifier = ""                  # прокси для Telegram/смены IP (формат: login:pass@host:port)
-tg_only_text = false                 # true — только текст без фото
-
 # --- Режим и сохранение ---
 one_time_start = false               # true — однократный проход и завершение
 one_file_for_link = false            # true — отдельный Excel на каждую ссылку
 parse_views = false                  # парсить просмотры (доп. запросы на страницы)
 save_xlsx = true                     # сохранять в Excel
-
-# --- Оценка через DeepSeek (цена/производительность) ---
-use_deepseek = false
-deepseek_api_key = ""                # ключ от platform.deepseek.com
-deepseek_model = "deepseek-chat"
-deepseek_max_ads_per_run = 30        # объявлений за проход
-deepseek_batch_size = 5              # объявлений в одном запросе к API
-deepseek_history_size = 10           # примеров из истории для калибровки
-min_deepseek_score = 0               # отсев ниже порога
 parse_full_description = false       # полные описания (открывать страницы)
+
+# --- Веб-приложение (server/ + web-server/, запуск: python run.py) ---
+server_port = 8000                   # порт REST API
+web_server_port = 3000               # порт React dev-сервера
+admin_password = ""                  # пароль для входа админа (логин: admin)
+
+
+# --- Camoufox (реальный браузер для запросов к поиску) ---
+[avito.camoufox]
+use = false                          # true — поиск через Camoufox вместо curl_cffi
+os = "windows"                       # десктопный отпечаток: windows / macos / linux
+headless = true                      # запускать браузер без окна
+humanize = true                      # человеческие движения курсора
+geoip = true                         # гео/locale под IP прокси (нужен [geoip])
+
+
+# --- ADB-прокси (tinyproxy/microsocks на телефоне) ---
+# На телефоне: tinyproxy слушает порт (обычно 1080/5555). На ПК проброс:
+#   adb forward tcp:<local_port> tcp:<remote_port>
+[avito.adb_proxy]
+use = false                          # true — трафик через телефон (http)
+device_serial = ""                   # опционально: серийник устройства (adb -s SERIAL)
+local_port = 1080                    # порт на ПК после adb forward
+remote_port = 1080                   # порт tinyproxy на телефоне
+rotate_ip = true                     # смена IP через airplane mode при блокировке
+login = ""                           # опционально: логин HTTP (tinyproxy BasicAuth)
+password = ""                        # опционально: пароль HTTP (tinyproxy BasicAuth)
+server = ""                          # host:port для передачи в SPFA body proxy; пусто = 127.0.0.1:{local_port}
+
+
+# --- Мобильный прокси (используется вместо adb) ---
+[avito.mobile_proxy]
+proxy_string = ""                    # формат: логин:пароль@хост:порт
+change_url = ""                      # URL смены IP мобильного прокси (changeip)
+# Дополнительные ссылки смены IP (fallback): если основная не смогла сменить IP,
+# парсер пробует следующую из списка.
+# change_urls = ["https://changeip.mobileproxy.space/?proxy_key=KEY2", "https://changeip.mobileproxy.space/?proxy_key=KEY3"]
+
+
+# --- Мессенджеры для отправки обработанных объявлений ---
+[avito.messengers]
+tg_token = ""                        # токен бота от @BotFather
+tg_chat_id = []                      # chat_id получателей (можно несколько)
+vk_token = ""                        # ключ API сообщества VK
+vk_user_id = []                      # ID получателей VK
+proxy_notifier = ""                  # прокси для Telegram/смены IP (формат: login:pass@host:port)
+
+
+# ============================================================
+# Ссылки для мониторинга (ключ = ссылка, значение = объект)
+#
+# Для каждой ссылки можно задать цену и ключевые слова:
+#   "ссылка" = { min_price = 10000, max_price = 50000, white_list = ["rtx"], black_list = ["сломан"] }
+#   "ссылка" = {}                     # без ограничений (глобальные настройки)
+# ============================================================
+[avito.links]
+"https://www.avito.ru/novosibirsk/nastolnye_kompyutery?q=игровой+пк" = {}
+# "https://www.avito.ru/novosibirsk/videokarty?q=rtx" = { min_price = 10000, max_price = 50000, white_list = ["rtx"], black_list = ["сломан"] }
+# "https://www.avito.ru/novosibirsk/noutbuki?q=macbook" = { max_price = 80000 }

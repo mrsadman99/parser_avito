@@ -71,29 +71,29 @@ def main():
         return
 
     change_urls = []
-    if cfg.proxy_change_url:
-        change_urls.append(cfg.proxy_change_url)
-    for cu in (cfg.proxy_change_urls or []):
+    if cfg.mobile_proxy.change_url:
+        change_urls.append(cfg.mobile_proxy.change_url)
+    for cu in (cfg.mobile_proxy.change_urls or []):
         if cu and cu not in change_urls:
             change_urls.append(cu)
 
-    if not (cfg.proxy_string and change_urls):
+    if not (cfg.mobile_proxy.proxy_string and change_urls):
         print("❌ В config.toml не настроен мобильный прокси (нужны proxy_string и proxy_change_url)")
         return
 
-    host = cfg.proxy_string.split("@")[-1] if "@" in cfg.proxy_string else cfg.proxy_string
+    host = cfg.mobile_proxy.proxy_string.split("@")[-1] if "@" in cfg.mobile_proxy.proxy_string else cfg.mobile_proxy.proxy_string
     print(f"🛰 Мобильный прокси: {host}")
 
     if not only_check:
         print(f"🔄 Меняю IP через changeip (ссылок: {len(change_urls)})...")
         try:
-            new_ip, _ = change_ip(change_urls, cfg.proxy_notifier)
+            new_ip, _ = change_ip(change_urls, cfg.messengers.proxy_notifier)
             print(f"✅ Новый IP (от провайдера): {new_ip}")
         except Exception as err:
             print(f"❌ Ошибка смены IP: {err}")
 
     print("🌐 Проверяю фактический IP через прокси...")
-    ip = current_ip(cfg.proxy_string)
+    ip = current_ip(cfg.mobile_proxy.proxy_string)
     if ip:
         print(f"🌐 IP (через прокси): {ip}")
     else:

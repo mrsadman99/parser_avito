@@ -7,7 +7,7 @@ from pathlib import Path
 import flet as ft
 from loguru import logger
 
-from dto import AvitoConfig
+from dto import AvitoConfig, MessengersConfig
 from integrations.notifications.factory import build_notifier
 from lang import *
 from load_config import save_avito_config, load_avito_config
@@ -31,28 +31,31 @@ def main(page: ft.Page):
 
     is_run = False
     stop_event = threading.Event()
+    prev_links = {}
 
     def set_up():
         """Загружает настройки из config.toml и применяет к интерфейсу"""
+        nonlocal prev_links
         try:
             config = load_avito_config("config.toml")
         except Exception as err:
             logger.error(f"Ошибка при загрузке конфига: {err}")
             return
 
-        url_input.value = "\n".join(config.urls or [])
-        tg_chat_id.value = "\n".join(config.tg_chat_id or [])
-        tg_token.value = config.tg_token or ""
-        vk_token.value = config.vk_token or ""
-        vk_user_id.value = "\n".join(config.vk_user_id or [])
+        prev_links = config.links
+        url_input.value = "\n".join(config.links.keys())
+        tg_chat_id.value = "\n".join(config.messengers.tg_chat_id or [])
+        tg_token.value = config.messengers.tg_token or ""
+        vk_token.value = config.messengers.vk_token or ""
+        vk_user_id.value = "\n".join(config.messengers.vk_user_id or [])
         count_page.value = str(config.count)
-        keys_word_white_list.value = "\n".join(config.keys_word_white_list or [])
-        keys_word_black_list.value = "\n".join(config.keys_word_black_list or [])
+        white_list.value = "\n".join(config.white_list or [])
+        black_list.value = "\n".join(config.black_list or [])
         max_price.value = str(config.max_price)
         min_price.value = str(config.min_price)
         geo.value = config.geo or ""
-        proxy.value = config.proxy_string or ""
-        proxy_change_ip.value = config.proxy_change_url or ""
+        proxy.value = config.mobile_proxy.proxy_string or ""
+        proxy_change_ip.value = config.mobile_proxy.change_url or ""
         pause_general.value = config.pause_general or 60
         pause_between_links.value = config.pause_between_links or 5
         max_age.value = config.max_age or 0
@@ -70,20 +73,26 @@ def main(page: ft.Page):
         purchase_cooldown.value = str(config.purchase_cooldown)
         use_own_account.value = config.use_own_cookies
         parse_phone.value = config.parse_phone
-        proxy_notifier.value = config.proxy_notifier
-        tg_only_text.value = config.tg_only_text
+        proxy_notifier.value = config.messengers.proxy_notifier
         retry_delay.value = config.retry_delay
         timeout.value = config.timeout
         block_threshold.value = config.block_threshold
         retry_on_failure.value = config.retry_on_failure
         retry_on_failure_delay.value = str(config.retry_on_failure_delay)
-        use_deepseek.value = config.use_deepseek
-        deepseek_api_key.value = config.deepseek_api_key or ""
-        deepseek_model.value = config.deepseek_model or "deepseek-chat"
-        deepseek_max_ads_per_run.value = str(config.deepseek_max_ads_per_run)
-        deepseek_batch_size.value = str(config.deepseek_batch_size)
-        min_deepseek_score.value = str(config.min_deepseek_score)
         parse_full_description.value = config.parse_full_description
+        use_camoufox.value = config.camoufox.use
+        camoufox_os.value = config.camoufox.os or "windows"
+        camoufox_headless.value = config.camoufox.headless
+        camoufox_humanize.value = config.camoufox.humanize
+        camoufox_geoip.value = config.camoufox.geoip
+        use_adb_proxy.value = config.adb_proxy.use
+        adb_device_serial.value = config.adb_proxy.device_serial or ""
+        adb_local_port.value = str(config.adb_proxy.local_port)
+        adb_remote_port.value = str(config.adb_proxy.remote_port)
+        adb_rotate_ip.value = config.adb_proxy.rotate_ip
+        adb_proxy_login.value = config.adb_proxy.login or ""
+        adb_proxy_password.value = config.adb_proxy.password or ""
+        adb_proxy_server.value = config.adb_proxy.server or ""
 
         page.update()
 
@@ -95,21 +104,62 @@ def main(page: ft.Page):
 
     def save_config():
         """Сохраняет настройки в TOML"""
+        nonlocal prev_links
+        link_urls = [u.strip() for u in (url_input.value or "").splitlines() if u.strip()]
+        links = {}
+        for u in link_urls:
+            prev = prev_links.get(u)
+            if prev is not None:
+                cfg = {}
+                if prev.min_price is not None:
+                    cfg["min_price"] = prev.min_price
+                if prev.max_price is not None:
+                    cfg["max_price"] = prev.max_price
+                if prev.white_list:
+                    cfg["white_list"] = prev.white_list
+                if prev.black_list:
+                    cfg["black_list"] = prev.black_list
+                links[u] = cfg
+            else:
+                links[u] = {}
+
         config = {"avito": {
-            "tg_token": tg_token.value or "",
-            "tg_chat_id": tg_chat_id.value.splitlines() if tg_chat_id.value else [],
-            "vk_token": vk_token.value or "",
-            "vk_user_id": vk_user_id.value.splitlines() if vk_user_id.value else [],
-            "urls": url_input.value.splitlines() if url_input.value else [],
+            "links": links,
+            "messengers": {
+                "tg_token": tg_token.value or "",
+                "tg_chat_id": tg_chat_id.value.splitlines() if tg_chat_id.value else [],
+                "vk_token": vk_token.value or "",
+                "vk_user_id": vk_user_id.value.splitlines() if vk_user_id.value else [],
+                "proxy_notifier": proxy_notifier.value or "",
+            },
+            "camoufox": {
+                "use": use_camoufox.value,
+                "os": camoufox_os.value or "windows",
+                "headless": camoufox_headless.value,
+                "humanize": camoufox_humanize.value,
+                "geoip": camoufox_geoip.value,
+            },
+            "adb_proxy": {
+                "use": use_adb_proxy.value,
+                "device_serial": adb_device_serial.value or "",
+                "local_port": to_int_safe(adb_local_port.value, 1080),
+                "remote_port": to_int_safe(adb_remote_port.value, 1080),
+                "rotate_ip": adb_rotate_ip.value,
+                "login": adb_proxy_login.value or "",
+                "password": adb_proxy_password.value or "",
+                "server": adb_proxy_server.value or "",
+            },
+            "mobile_proxy": {
+                "proxy_string": proxy.value or "",
+                "change_url": proxy_change_ip.value or "",
+            },
             "count": to_int_safe(count_page.value, 1),
-            "keys_word_white_list": keys_word_white_list.value.splitlines() if keys_word_white_list.value else [],
-            "keys_word_black_list": keys_word_black_list.value.splitlines() if keys_word_black_list.value else [],
+            "white_list": white_list.value.splitlines() if white_list.value else [],
+            "black_list": black_list.value.splitlines() if black_list.value else [],
             "seller_black_list": seller_black_list.value.splitlines() if seller_black_list.value else [],
             "max_price": to_int_safe(max_price.value, 99999999),
             "min_price": to_int_safe(min_price.value, 0),
             "geo": geo.value or "",
-            "proxy_string": proxy.value or "",
-            "proxy_change_url": proxy_change_ip.value or "",
             "pause_general": to_int_safe(pause_general.value, 3),
             "pause_between_links": to_int_safe(pause_between_links.value, 1),
             "max_age": to_int_safe(max_age.value, 0),
@@ -126,20 +176,12 @@ def main(page: ft.Page):
             "purchase_cooldown": to_int_safe(purchase_cooldown.value, 600),
             "use_own_cookies": use_own_account.value,
             "parse_phone": parse_phone.value,
-            "proxy_notifier": proxy_notifier.value,
-            "tg_only_text": tg_only_text.value,
             "retry_delay": to_int_safe(retry_delay.value, 5),
             "timeout": to_int_safe(timeout.value, 20),
             "block_threshold": to_int_safe(block_threshold.value, 3),
             "retry_on_failure": retry_on_failure.value,
             "retry_on_failure_delay": to_int_safe(retry_on_failure_delay.value, 30),
-            "use_deepseek": use_deepseek.value,
-            "deepseek_api_key": deepseek_api_key.value,
-            "deepseek_model": deepseek_model.value or "deepseek-chat",
-            "deepseek_max_ads_per_run": to_int_safe(deepseek_max_ads_per_run.value, 30),
-            "deepseek_batch_size": to_int_safe(deepseek_batch_size.value, 5),
-            "min_deepseek_score": to_int_safe(min_deepseek_score.value, 0),
-            "parse_full_description": parse_full_description.value
+            "parse_full_description": parse_full_description.value,
         }}
 
         save_avito_config(config)
@@ -174,10 +216,11 @@ def main(page: ft.Page):
 
         try:
             config = AvitoConfig(
-                tg_token=tg_token.value,
-                tg_chat_id=tg_chat_id.value.split(),
-                proxy_notifier=proxy_notifier.value,
-                urls=[] # заглушка
+                messengers=MessengersConfig(
+                    tg_token=tg_token.value,
+                    tg_chat_id=tg_chat_id.value.split(),
+                    proxy_notifier=proxy_notifier.value,
+                ),
             )
 
             notifier = build_notifier(config=config)
@@ -192,9 +235,10 @@ def main(page: ft.Page):
 
         try:
             config = AvitoConfig(
-                vk_token=vk_token.value,
-                vk_user_id=vk_user_id.value.splitlines(),
-                urls=[] # заглушка
+                messengers=MessengersConfig(
+                    vk_token=vk_token.value,
+                    vk_user_id=vk_user_id.value.splitlines(),
+                ),
             )
 
             notifier = build_notifier(config=config)
@@ -216,7 +260,7 @@ def main(page: ft.Page):
             ft.TextButton("Купить прокси",
                           on_click=lambda e: page.launch_url(
                               PROXY_LINK)),
-            ft.TextButton("Зарегистрироваться на spfa.ru",
+            ft.TextButton("Зарегистрироваться на spfa.pro",
                           on_click=lambda e: page.launch_url(
                               SPFA_LINK)),
             ft.TextButton("Отмена", on_click=close_dlg),
@@ -317,6 +361,21 @@ def main(page: ft.Page):
         return True
 
     def check_string():
+        if use_bypass_api.value and not (proxy.value or "").strip():
+            dlg_modal = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Для spfa.pro требуется прокси"),
+                content=ft.Text(SPFA_PROXY_REQUIRED),
+                actions=[
+                    ft.TextButton("Купить прокси",
+                                  on_click=lambda e: page.launch_url(
+                                      PROXY_LINK)),
+                    ft.TextButton("Понятно", on_click=lambda e: page.close(dlg_modal)),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.open(dlg_modal)
+            return False
         if proxy.value and ("proxy.site" not in proxy.value or "@" not in proxy.value):
             dlg_modal = ft.AlertDialog(
                 modal=True,
@@ -361,6 +420,7 @@ def main(page: ft.Page):
         parsing_thread = threading.Thread(target=parser.parse)
         parsing_thread.start()
         parsing_thread.join()
+        parser.close()
         start_btn.disabled = False
         start_btn.text = "Старт"
         page.update()
@@ -404,7 +464,7 @@ def main(page: ft.Page):
                              tooltip=MIN_PRICE_HELP)
     max_price = ft.TextField(label="Максимальная цена", width=300, expand=True, text_size=12, height=40,
                              tooltip=MAX_PRICE_HELP)
-    keys_word_white_list = ft.TextField(
+    white_list = ft.TextField(
         label="Ключевые слова (через Enter)",
         multiline=True,
         min_lines=1,
@@ -414,7 +474,7 @@ def main(page: ft.Page):
         tooltip=KEYWORD_INPUT_HELP,
         text_size=12, height=60,
     )
-    keys_word_black_list = ft.TextField(
+    black_list = ft.TextField(
         label="Черный список ключевых слов (через Enter)",
         multiline=True,
         min_lines=1,
@@ -437,7 +497,6 @@ def main(page: ft.Page):
                               multiline=True, expand=True, text_size=12, height=50, tooltip=TG_CHAT_ID_HELP)
     proxy_notifier = ft.TextField(label="Прокси для tg", width=400,
                               multiline=False, expand=True, text_size=12, height=50, tooltip=PROXY_NOTIFIER_HELP)
-    tg_only_text = ft.Checkbox("Присылать только текст без изображений", value=False, tooltip=TG_ONLY_TEXT_HELP)
     btn_test_tg = ft.ElevatedButton(text="Проверить tg", disabled=False, on_click=telegram_log_test, expand=True,
                                     tooltip=BTN_TEST_TG_HELP)
     vk_token = ft.TextField(label="Token VK (сообщества)", width=400, text_size=12, height=50, expand=True,
@@ -453,7 +512,7 @@ def main(page: ft.Page):
                          can_reveal_password=True,
                          )
     proxy_change_ip = ft.TextField(
-        label="Ссылка для изменения IP, в формате https://changeip.mobileproxy.space/?proxy_key=*** (только для мобильных прокси)", width=400,
+        label="Ссылка для изменения IP, в формате https://changeip.mobileproxy.rent/?proxy_key=*** (только для мобильных прокси)", width=400,
         expand=True, tooltip=PROXY_CHANGE_IP_HELP)
     proxy_btn_panel_help = ft.FilledButton(text="Помощь (если ничего непонятно)", on_click=open_dlg_modal, expand=True,
                                        tooltip=PROXY_BTN_HELP_HELP)
@@ -468,7 +527,7 @@ def main(page: ft.Page):
     )
 
     cookies_api_key = ft.TextField(
-        label="API ключ сервиса обхода блокировок spfa.ru (опционально)",
+        label="API ключ сервиса обхода блокировок spfa.pro (опционально)",
         password=True,
         can_reveal_password=True,
         expand=True,
@@ -479,13 +538,13 @@ def main(page: ft.Page):
         width=250,
         text_size=12,
         height=40,
-        tooltip="Минимальное время между покупками новых cookies через spfa.ru (чтобы не сжечь баланс)",
+        tooltip="Минимальное время между покупками новых cookies через spfa.pro (чтобы не сжечь баланс)",
     )
     use_bypass_api = ft.Checkbox("Использовать spfa сервис", value=False)
     bypass_api_key_help_icon = ft.IconButton(
         icon=ft.icons.HELP_OUTLINE,
         tooltip="api-key:\n\n"
-                "• Зарегистрируйтесь на spfa.ru, чтобы его получить\n"
+                "• Зарегистрируйтесь на spfa.pro, чтобы его получить\n"
                 "• Данный ключ поможет в обходе блокировок\n",
         icon_size=20,
     )
@@ -585,23 +644,34 @@ def main(page: ft.Page):
                                           text_size=12, height=40,
                                           tooltip="Сколько ждать перед повторным запуском, если проход не удался")
 
-    # DeepSeek — оценка цена/производительность
-    use_deepseek = ft.Checkbox("Оценивать объявления через DeepSeek (цена/производительность)", value=False,
-                               tooltip="Включить оценку объявлений нейросетью DeepSeek. Требуется API-ключ.")
-    deepseek_api_key = ft.TextField(label="API ключ DeepSeek (https://platform.deepseek.com)",
-                                    password=True, can_reveal_password=True, expand=True,
-                                    tooltip="Ключ API DeepSeek. Получить: https://platform.deepseek.com")
-    deepseek_model = ft.TextField(label="Модель DeepSeek", value="deepseek-chat", width=250, text_size=12, height=40,
-                                  tooltip="deepseek-chat (рекомендуется) или deepseek-reasoner")
-    deepseek_max_ads_per_run = ft.TextField(label="Макс. объявлений на проход", value="30", width=200, text_size=12, height=40,
-                                            tooltip="Сколько объявлений оценивать за один проход (ограничение расхода API)")
-    deepseek_batch_size = ft.TextField(label="Объявлений за один запрос", value="5", width=200, text_size=12, height=40,
-                                       tooltip="Сколько объявлений отправлять в одном запросе к DeepSeek (меньше вызовов = дешевле)")
-    min_deepseek_score = ft.TextField(label="Мин. оценка (0-100)", value="0", width=180, text_size=12, height=40,
-                                      tooltip="Объявления с оценкой ниже порога будут отброшены")
+    # Полное описание объявлений
     parse_full_description = ft.Checkbox("Открывать страницы и брать ПОЛНОЕ описание", value=False,
                                          tooltip="Дополнительно открывать каждое объявление для полного описания "
                                                  "(в выдаче API описание обрезано ~250 символов)")
+
+    # Camoufox (реальный браузер для запросов к поиску)
+    use_camoufox = ft.Checkbox("Поиск через Camoufox (антидетект-браузер)", value=False,
+                               tooltip="Запросы к поисковой выдаче Avito через Camoufox "
+                                       "(реальный браузер с десктопным отпечатком) вместо curl_cffi")
+    camoufox_os = ft.Dropdown(label="ОС отпечатка", value="windows", width=180, text_size=12, height=40,
+                              options=[ft.dropdown.Option("windows"), ft.dropdown.Option("macos"),
+                                       ft.dropdown.Option("linux")])
+    camoufox_headless = ft.Checkbox("Без окна (headless)", value=True)
+    camoufox_humanize = ft.Checkbox("Человеческие движения", value=True)
+    camoufox_geoip = ft.Checkbox("Гео под IP прокси", value=True)
+
+    # ADB-прокси (microsocks на телефоне)
+    use_adb_proxy = ft.Checkbox("ADB-прокси (microsocks на телефоне)", value=False,
+                                tooltip="Трафик через телефон: http -> adb forward -> microsocks -> мобильная сеть")
+    adb_device_serial = ft.TextField(label="Серийник устройства (необязательно)", width=250, text_size=12, height=40)
+    adb_local_port = ft.TextField(label="Локальный порт", value="1080", width=120, text_size=12, height=40)
+    adb_remote_port = ft.TextField(label="Порт microsocks", value="1080", width=120, text_size=12, height=40)
+    adb_rotate_ip = ft.Checkbox("Смена IP (airplane mode)", value=True)
+    adb_proxy_login = ft.TextField(label="Логин HTTP", value="", width=150, text_size=12, height=40)
+    adb_proxy_password = ft.TextField(label="Пароль HTTP", value="", password=True,
+                                      can_reveal_password=True, width=150, text_size=12, height=40)
+    adb_proxy_server = ft.TextField(label="Адрес для SPFA (host:port)", value="", width=220, text_size=12, height=40,
+                                    tooltip="Какой адрес прокси передавать в тело SPFA. Пусто = 127.0.0.1:{adb_local_port}")
 
 
     accordion = ft.ExpansionPanelList(
@@ -622,7 +692,7 @@ def main(page: ft.Page):
             panel(
                 "🟡 Фильтрация",
                 [
-                    ft.Row([keys_word_white_list, keys_word_black_list]),
+                    ft.Row([white_list, black_list]),
                     seller_black_list,
                     ft.Row([geo,max_age]),
                     ft.Row([ignore_ads_in_reserv, ignore_promote_ads]),
@@ -635,7 +705,7 @@ def main(page: ft.Page):
                     ft.Text("Telegram", weight=ft.FontWeight.BOLD),
                     ft.Row([tg_token, tg_chat_id]),
                     ft.Row([proxy_notifier, ]),
-                    ft.Row([btn_test_tg, tg_only_text]),
+                    ft.Row([btn_test_tg]),
 
                     ft.Divider(),
 
@@ -655,7 +725,7 @@ def main(page: ft.Page):
                                 content=ft.Column([
                                     ft.Row([
                                         ft.Icon(ft.icons.CLOUD, color=ft.colors.BLUE_400),
-                                        ft.Text("Сторонний сервис (spfa.ru)", size=14, weight=ft.FontWeight.W_500),
+                                        ft.Text("Сторонний сервис (spfa.pro)", size=14, weight=ft.FontWeight.W_500),
                                     ]),
                                     ft.Container(
                                         content=ft.Column([
@@ -713,6 +783,34 @@ def main(page: ft.Page):
                                 ink=True,
                             ),
 
+                            # Карточка 4: Camoufox + ADB-прокси
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Row([
+                                        ft.Icon(ft.icons.SHIELD, color=ft.colors.ORANGE_400),
+                                        ft.Text("Camoufox + ADB-прокси", size=14, weight=ft.FontWeight.W_500),
+                                    ]),
+                                    ft.Container(
+                                        content=ft.Column([
+                                            use_camoufox,
+                                            ft.Row([camoufox_os, camoufox_headless, camoufox_humanize, camoufox_geoip]),
+                                            ft.Divider(),
+                                            use_adb_proxy,
+                                            ft.Row([adb_local_port, adb_remote_port, adb_rotate_ip]),
+                                            ft.Row([adb_proxy_login, adb_proxy_password]),
+                                            adb_proxy_server,
+                                            adb_device_serial,
+                                        ]),
+                                        margin=ft.margin.only(left=25, top=5),
+                                    ),
+                                ]),
+                                padding=10,
+                                border=ft.border.all(1, ft.colors.GREY_700),
+                                border_radius=8,
+                                margin=ft.margin.only(bottom=8),
+                                ink=True,
+                            ),
+
                             # Кнопка помощи
                             ft.Container(
                                 content=ft.Row(
@@ -737,15 +835,6 @@ def main(page: ft.Page):
                     ft.Row([parse_views,
                             #parse_phone,
                             save_xlsx]),
-                ]
-            ),
-
-            panel(
-                "🤖 DeepSeek (цена/производительность)",
-                [
-                    use_deepseek,
-                    deepseek_api_key,
-                    ft.Row([deepseek_model, deepseek_max_ads_per_run, deepseek_batch_size, min_deepseek_score]),
                     parse_full_description,
                 ]
             ),

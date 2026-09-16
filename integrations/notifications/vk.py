@@ -3,7 +3,6 @@ from loguru import logger
 
 from integrations.notifications.base import Notifier
 from integrations.notifications.transport import send_with_retries
-from integrations.notifications.utils import get_first_image
 from models import Item
 
 
@@ -32,14 +31,15 @@ class VKNotifier(Notifier):
         send_with_retries(_send)
 
     def notify_ad(self, ad: Item):
+        """Отправляет объявление с главным фото (если есть)."""
         def _send():
             message = self.format_ad(ad)
-            _image_url = get_first_image(ad=ad)
+            photo_url = ad.main_image_url()
 
-            # Загружаем фото если есть
             attachment = None
-            if _image_url:
-                attachment = self.__upload_photo_to_vk(_image_url, str(self.user_id))
+            if photo_url:
+                attachment = self.__upload_photo_to_vk(photo_url, str(self.user_id))
+
             payload = {
                 "user_id": self.user_id,
                 "random_id": 0,
@@ -52,7 +52,6 @@ class VKNotifier(Notifier):
             headers = {
                 "Authorization": f"Bearer {self.vk_token}"
             }
-
             return requests.post(
                 "https://api.vk.com/method/messages.send",
                 data=payload,
@@ -73,7 +72,7 @@ class VKNotifier(Notifier):
             logger.warning(f"VK API error {error_code}: {error_msg}")
             return
 
-        logger.debug(f"Сообщение успешно отправлено")
+        logger.debug("Сообщение успешно отправлено")
 
     def notify(self, ad: Item = None, message: str = None):
         if ad:
@@ -85,7 +84,6 @@ class VKNotifier(Notifier):
         headers = {"Authorization": f"Bearer {self.vk_token}"}
 
         try:
-            # Шаг 1: Получаем URL для загрузки
             upload_server_response = requests.post(
                 "https://api.vk.com/method/photos.getMessagesUploadServer",
                 headers=headers,
@@ -98,7 +96,6 @@ class VKNotifier(Notifier):
 
             upload_url = upload_server_response["response"]["upload_url"]
 
-            # Шаг 2: Скачиваем фото и загружаем на VK
             photo_data = requests.get(photo_url, timeout=10).content
             upload_response = requests.post(
                 upload_url,
@@ -109,7 +106,6 @@ class VKNotifier(Notifier):
                 logger.warning("VK: фото не загружено")
                 return None
 
-            # Шаг 3: Сохраняем фото
             save_response = requests.post(
                 "https://api.vk.com/method/photos.saveMessagesPhoto",
                 headers=headers,
@@ -125,7 +121,6 @@ class VKNotifier(Notifier):
                 logger.warning(f"VK save photo error: {save_response['error']}")
                 return None
 
-            # Возвращаем attachment в формате photo{owner_id}_{id}
             photo_info = save_response["response"][0]
             attachment = f"photo{photo_info['owner_id']}_{photo_info['id']}"
             logger.debug(f"VK: фото загружено, attachment: {attachment}")
@@ -167,6 +162,14 @@ class VKNotifier(Notifier):
 
         if seller:
             parts.append(f"👤 Продавец: {seller}")
+
+        rating = getattr(ad, "seller_rating", None)
+        if rating is not None:
+            reviews = getattr(ad, "seller_reviews", None)
+            text = f"⭐ Рейтинг: {rating}"
+            if reviews is not None:
+                text += f" ({reviews} оценок)"
+            parts.append(text)
 
         if short_url:
             parts.append(f"🔗 {short_url}")

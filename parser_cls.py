@@ -18,14 +18,15 @@ from hide_private_data import log_config
 from integrations.notifications.factory import build_notifier
 from load_config import load_avito_config
 from models import ItemsResponse, Item
-from parser.ai.deepseek import DeepSeekEvaluator
 from parser.cookies.factory import build_cookies_provider
 from parser.export.factory import build_result_storage
 from parser.http.client import HttpClient
+from parser.http.camoufox_client import CamoufoxClient
 from parser.proxies.proxy_factory import build_proxy
 from parser.url_converter import AvitoUrlConverter
 from utils.parse_phone import ParsePhone
 from version import VERSION
+from lang import SPFA_PROXY_REQUIRED
 
 DEBUG_MODE = False
 
@@ -36,9 +37,11 @@ class AvitoParse:
     def __init__(
             self,
             config: AvitoConfig,
-            stop_event=None
+            stop_event=None,
+            links_provider=None
     ):
         self.config = config
+        self.links_provider = links_provider
         self.proxy = build_proxy(self.config)
         self.cookies_provider = build_cookies_provider(config=config, proxy=self.proxy)
         self.db_handler = SQLiteDBHandler()
@@ -57,15 +60,21 @@ class AvitoParse:
             retry_delay=config.retry_delay,
             block_threshold=config.block_threshold
         )
-        self.ads_filter = AdsFilter(config=config, is_viewed_fn=self.is_viewed)
-        self.deepseek = None
-        if config.use_deepseek and config.deepseek_api_key:
-            self.deepseek = DeepSeekEvaluator(
-                api_key=config.deepseek_api_key,
-                model=config.deepseek_model,
-                history_size=config.deepseek_history_size,
+        self.camoufox = None
+        if config.camoufox.use:
+            self.camoufox = CamoufoxClient(
+                proxy=self.proxy,
+                os=config.camoufox.os,
+                headless=config.camoufox.headless,
+                humanize=config.camoufox.humanize,
+                geoip=config.camoufox.geoip,
+                timeout=config.timeout,
+                max_retries=config.max_count_of_retry,
+                retry_delay=config.retry_delay,
+                block_threshold=config.block_threshold,
             )
-            logger.info("DeepSeek-оценка включена")
+            logger.info("Camoufox включён для запросов к поиску")
+        self.ads_filter = AdsFilter(config=config, is_viewed_fn=self.is_viewed)
         log_config(config=self.config, version=VERSION)
 
     @property
@@ -73,11 +82,22 @@ class AvitoParse:
         """Проход считается неудачным, если все запросы завершились ошибкой/блокировкой."""
         return self.bad_request_count > 0 and self.good_request_count == 0
 
+    def _current_links(self):
+        """Актуальный набор ссылок: из внешнего провайдера (веб), иначе из конфига."""
+        if self.links_provider is not None:
+            try:
+                links = self.links_provider()
+                if links:
+                    return links
+            except Exception as err:
+                logger.warning(f"Не удалось получить ссылки из провайдера: {err}")
+        return self.config.links
+
     def get_proxy_obj(self) -> Proxy | None:
-        if all([self.config.proxy_string, self.config.proxy_change_url]):
+        if all([self.config.mobile_proxy.proxy_string, self.config.mobile_proxy.change_url]):
             return Proxy(
-                proxy_string=self.config.proxy_string,
-                change_ip_link=self.config.proxy_change_url
+                proxy_string=self.config.mobile_proxy.proxy_string,
+                change_ip_link=self.config.mobile_proxy.change_url
             )
         logger.info("Работаем без прокси")
         return None
@@ -87,7 +107,10 @@ class AvitoParse:
             return None
 
         try:
-            response = self.http.request("GET", url)
+            if self.camoufox:
+                response = self.camoufox.request("GET", url)
+            else:
+                response = self.http.request("GET", url)
             self.good_request_count += 1
             return response.text
 
@@ -116,7 +139,10 @@ class AvitoParse:
 
         page_url = self._api_url_for_page(api_url, page)
         try:
-            response = self.http.request("GET", page_url)
+            if self.camoufox:
+                response = self.camoufox.request("GET", page_url)
+            else:
+                response = self.http.request("GET", page_url)
             self.good_request_count += 1
             return response.json()
         except Exception as err:
@@ -158,12 +184,14 @@ class AvitoParse:
         return url
 
     def parse(self):
+        links = self._current_links()
+
         if not self.config.one_file_for_link:
             self.result_storage = build_result_storage(config=self.config)
 
         current_ip = self.http.get_current_ip()
         if current_ip:
-            if self.config.proxy_string:
+            if self.config.mobile_proxy.proxy_string:
                 logger.info(f"🌐 IP (через прокси): {current_ip}")
             else:
                 logger.info(f"🌐 Текущий IP: {current_ip}")
@@ -172,7 +200,7 @@ class AvitoParse:
 
 
         api_urls = {}
-        for source_url in self.config.urls:
+        for source_url in links:
             if self.stop_event and self.stop_event.is_set():
                 return
             try:
@@ -183,7 +211,7 @@ class AvitoParse:
                     f"{source_url}: {err}"
                 )
 
-        for link_index, source_url in enumerate(self.config.urls):
+        for link_index, (source_url, link_cfg) in enumerate(links.items()):
             api_url = api_urls.get(source_url)
             if not api_url:
                 logger.warning(f"⚠️ Не удалось получить API-адрес для ссылки: {source_url}")
@@ -196,6 +224,10 @@ class AvitoParse:
                 )
 
             query_label = self._query_label(source_url)
+            if link_cfg.min_price is not None or link_cfg.max_price is not None:
+                lo = link_cfg.min_price if link_cfg.min_price is not None else 0
+                hi = link_cfg.max_price if link_cfg.max_price is not None else "∞"
+                logger.info(f"Ценовой диапазон ссылки: {lo} – {hi}")
             blocks_before = self.http.block_count
             errors_before = self.http.error_count
             link_got_data = False
@@ -231,6 +263,7 @@ class AvitoParse:
                 logger.info(f"Объявлений перед фильтрацией {len(ads)}")
                 ads = self._add_seller_to_ads(ads=ads)
                 ads = self._add_promotion_to_ads(ads=ads)
+                ads = self._add_seller_rating(ads=ads)
 
                 if not ads:
                     logger.info(
@@ -238,14 +271,15 @@ class AvitoParse:
                     )
                     break
 
-                filtered_ads = self.filter_ads(ads=ads)
+                filtered_ads = self.filter_ads(
+                    ads=ads,
+                    min_price=link_cfg.min_price,
+                    max_price=link_cfg.max_price,
+                    white_list=link_cfg.white_list,
+                    black_list=link_cfg.black_list,
+                )
 
-                # --- Оценка через DeepSeek (цена/производительность) ---
-                if self.deepseek and filtered_ads:
-                    filtered_ads = self.parse_full_description(ads=filtered_ads)
-                    filtered_ads = self.rate_ads(ads=filtered_ads)
-                else:
-                    filtered_ads = self.parse_full_description(ads=filtered_ads)
+                filtered_ads = self.parse_full_description(ads=filtered_ads)
 
                 try:
                     self.notifier.notify_many(ads=filtered_ads)
@@ -256,7 +290,7 @@ class AvitoParse:
                 filtered_ads = self.parse_phone(ads=filtered_ads)
 
                 if filtered_ads:
-                    self.__save_viewed(ads=filtered_ads)
+                    self.__save_viewed(ads=filtered_ads, source_url=source_url)
                     ads_in_link.extend(filtered_ads)
 
                 logger.info(f"Пауза {self.config.pause_between_links} сек.")
@@ -294,6 +328,16 @@ class AvitoParse:
                 message="Парсинг Авито завершён. Все ссылки обработаны"
             )
             self.stop_event = True
+
+    def close(self):
+        """Освобождает ресурсы (Camoufox-браузер)."""
+        if self.camoufox is not None:
+            try:
+                self.camoufox.close()
+            except Exception as err:
+                logger.warning(f"Ошибка при закрытии Camoufox: {err}")
+            self.camoufox = None
+
     @staticmethod
     def _clean_null_ads(ads: list[Item]) -> list[Item]:
         return [ad for ad in ads if ad.id]
@@ -320,8 +364,15 @@ class AvitoParse:
         return {}
 
 
-    def filter_ads(self, ads: list[Item]) -> list[Item]:
-        return self.ads_filter.apply(ads)
+    def filter_ads(self, ads: list[Item], min_price=None, max_price=None,
+                   white_list=None, black_list=None) -> list[Item]:
+        return self.ads_filter.apply(
+            ads,
+            min_price=min_price,
+            max_price=max_price,
+            white_list=white_list,
+            black_list=black_list,
+        )
 
     def _add_seller_to_ads(self, ads: list[Item]) -> list[Item]:
         for ad in ads:
@@ -337,6 +388,21 @@ class AvitoParse:
                 for step in (ad.iva or {}).get("DateInfoStep", [])
                 for v in step.payload.get("vas", [])
             )
+        return ads
+
+    @staticmethod
+    def _add_seller_rating(ads: list[Item]) -> list[Item]:
+        """Достаёт рейтинг продавца и количество оценок из каталога (rating.score/summary)."""
+        for ad in ads:
+            rating = getattr(ad, "rating", None)
+            if rating is None:
+                continue
+            if rating.score is not None:
+                ad.seller_rating = float(rating.score)
+            if rating.summary:
+                digits = "".join(ch for ch in str(rating.summary) if ch.isdigit())
+                if digits:
+                    ad.seller_reviews = int(digits)
         return ads
 
     def parse_views(self, ads: list[Item]) -> list[Item]:
@@ -365,7 +431,7 @@ class AvitoParse:
         В выдаче API каталога описание обрезано (~250 символов), поэтому для
         полного текста делаем отдельный запрос на страницу объявления.
         """
-        if not (self.config.parse_full_description or self.config.use_deepseek):
+        if not self.config.parse_full_description:
             return ads
 
         logger.info("Начинаю парсинг полных описаний")
@@ -385,34 +451,6 @@ class AvitoParse:
                 logger.warning(f"Ошибка при парсинге описания {ad.urlPath}: {err}")
                 continue
         return ads
-
-    def rate_ads(self, ads: list[Item]) -> list[Item]:
-        """Оценивает объявления через DeepSeek, фильтрует по порогу и сортирует.
-
-        Результат: список отсортирован по убыванию оценки цена/производительность.
-        Лучшие объявления сохраняются в историю для калибровки последующих оценок.
-        Оценка идёт пакетами по deepseek_batch_size (один запрос = пачка).
-        """
-        batch_ads = ads[: self.config.deepseek_max_ads_per_run]
-        batch_size = max(1, self.config.deepseek_batch_size)
-        logger.info(
-            f"Оцениваю {len(batch_ads)} из {len(ads)} объявлений через DeepSeek "
-            f"(пакетами по {batch_size})"
-        )
-        for start in range(0, len(batch_ads), batch_size):
-            if self.stop_event and self.stop_event.is_set():
-                break
-            chunk = batch_ads[start : start + batch_size]
-            self.deepseek.evaluate_batch(chunk)
-
-        rated = [ad for ad in ads if ad.ai_score >= self.config.min_deepseek_score]
-        rated.sort(key=lambda ad: ad.ai_score, reverse=True)
-
-        for ad in rated[: self.config.deepseek_history_size]:
-            self.deepseek.add_to_history(ad)
-
-        logger.info(f"После оценки осталось {len(rated)} объявлений")
-        return rated
 
     @staticmethod
     def _extract_description(html: str) -> str | None:
@@ -505,13 +543,13 @@ class AvitoParse:
         published_time = datetime.utcfromtimestamp(timestamp_ms / 1000)
         return (now - published_time) <= timedelta(seconds=max_age_seconds)
 
-    def __save_viewed(self, ads: list[Item]) -> None:
+    def __save_viewed(self, ads: list[Item], source_url: str = None) -> None:
         """Сохраняет просмотренные объявления и ставит дату сканирования (UTC)."""
         try:
             now = _now_iso()
             for ad in ads:
                 ad.scanned_at = now
-            self.db_handler.add_record_from_page(ads=ads)
+            self.db_handler.add_record_from_page(ads=ads, source_url=source_url)
         except Exception as err:
             logger.info(f"При сохранении в БД ошибка {err}")
 
@@ -522,6 +560,16 @@ if __name__ == "__main__":
     except Exception as err:
         logger.error(f"Ошибка загрузки конфига: {err}")
         exit(1)
+
+    if config.use_bypass_api and not (config.proxy_string or "").strip():
+        logger.critical(f"SPFA не будет работать без прокси. {SPFA_PROXY_REQUIRED}")
+        exit(1)
+
+    if config.use_bypass_api and not config.proxy_change_url:
+        logger.warning(
+            "SPFA запущен с серверным (статическим) прокси. Если будет много ошибок - установить большие "
+            "pause_between_links и pause_general, чтобы снизить риск блокировок."
+        )
 
     while True:
         try:

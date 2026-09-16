@@ -7,7 +7,7 @@ from loguru import logger
 
 from parser.cookies.base import CookiesProvider
 
-API_URL = "https://spfa.ru/api"
+API_URL = "https://spfa.pro/api"
 
 
 class ExternalApiCookiesProvider(CookiesProvider):
@@ -20,10 +20,13 @@ class ExternalApiCookiesProvider(CookiesProvider):
         proxy=None,
     ):
         self.api_key = config.cookies_api_key
-        self.proxy = config.proxy_string
+        self.proxy_handler = proxy
+        adb_proxy_string = (
+            proxy.get_spfa_proxy_string() if proxy is not None else None
+        )
+        self.proxy = adb_proxy_string or config.mobile_proxy.proxy_string
         self.purchase_cooldown = config.purchase_cooldown
         self.storage_path = Path(storage_path)
-        self.proxy_handler = proxy
 
         self.last_id: str | None = None
         self.last_cookies: dict | None = None

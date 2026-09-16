@@ -35,7 +35,7 @@ OUTPUT_PATH = "storage/own_cookies.json"
 async def main():
     config = load_avito_config("config.toml")
 
-    if not (config.proxy_string and config.proxy_change_url):
+    if not (config.mobile_proxy.proxy_string and config.mobile_proxy.change_url):
         logger.error(
             "В config.toml не настроен мобильный прокси "
             "(нужны и proxy_string, и proxy_change_url)"
@@ -43,10 +43,10 @@ async def main():
         return
 
     proxy = Proxy(
-        proxy_string=config.proxy_string,
-        change_ip_link=config.proxy_change_url,
+        proxy_string=config.mobile_proxy.proxy_string,
+        change_ip_link=config.mobile_proxy.change_url,
     )
-    logger.info(f"Запускаю Playwright через прокси: {config.proxy_string}")
+    logger.info(f"Запускаю Playwright через прокси: {config.mobile_proxy.proxy_string}")
 
     client = PlaywrightClient(proxy=proxy, headless=True)
     ads_id = str(random.randint(1111111111, 9999999999))

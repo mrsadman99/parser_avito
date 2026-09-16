@@ -6,7 +6,7 @@
 
 # --- HTTP / парсинг ---
 curl_cffi==0.16.0            # HTTP-клиент парсера (имитация отпечатка браузера)
-httpx==0.28.1                # HTTP для уведомлений и DeepSeek
+httpx==0.28.1                # HTTP для cookies / уведомлений
 requests==2.32.3             # HTTP для прокси / SPFA / уведомлений
 PySocks==1.7.1               # поддержка socks5:// прокси в requests
 beautifulsoup4==4.13.4       # парсинг HTML
@@ -17,6 +17,9 @@ flet==0.24.1                 # графический интерфейс (AvitoP
 # --- Свои cookies / WebDriver ---
 playwright==1.52.0
 playwright-stealth==2.0.0
+
+# --- Camoufox (антидетект-браузер для запросов к поиску) ---
+camoufox[geoip]==0.5.5       # браузер скачается автоматически при первом запуске
 
 # --- Модели и валидация ---
 pydantic==2.9.2
@@ -33,3 +36,7 @@ tomli_w==1.2.0
 PyYAML==6.0.2
 tzdata==2025.2
 tzlocal==5.3.1
+
+# --- Веб-приложение (REST API, server/) ---
+fastapi==0.141.1
+uvicorn==0.52.1

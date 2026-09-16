@@ -28,21 +28,21 @@ def main():
         print(f"❌ Не удалось загрузить config.toml: {err}")
         return
 
-    if not config.tg_token:
+    if not config.messengers.tg_token:
         print("❌ В config.toml не заполнен tg_token")
         return
-    if not config.tg_chat_id:
+    if not config.messengers.tg_chat_id:
         print("❌ В config.toml не заполнен tg_chat_id")
         return
 
-    proxies = get_proxy(config.proxy_notifier)
+    proxies = get_proxy(config.messengers.proxy_notifier)
     if proxies:
-        print(f"📡 Использую прокси для TG: {config.proxy_notifier}")
+        print(f"📡 Использую прокси для TG: {config.messengers.proxy_notifier}")
 
-    url = f"https://api.telegram.org/bot{config.tg_token}/sendMessage"
+    url = f"https://api.telegram.org/bot{config.messengers.tg_token}/sendMessage"
     ok = True
 
-    for chat_id in config.tg_chat_id:
+    for chat_id in config.messengers.tg_chat_id:
         try:
             resp = requests.post(
                 url,

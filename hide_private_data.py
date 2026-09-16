@@ -29,12 +29,15 @@ def mask_sensitive_data(config_str: str) -> str:
         masked,
     )
 
-    # proxy_change_url → скрываем почти полностью, оставляем домен
+    # proxy_change_url / change_url / change_urls → скрываем почти полностью, оставляем домен
     masked = re.sub(
-        r"(proxy_change_url[\"']?\s*[:=]\s*[\"'])([^\"']+)([\"'])",
+        r"((?:proxy_)?change_urls?[\"']?\s*[:=]\s*[\"'])([^\"']+)([\"'])",
         lambda m: f"{m.group(1)}{_mask_url(m.group(2))}{m.group(3)}",
         masked,
     )
+
+    # proxy_key=... в changeip-ссылках (в т.ч. внутри списка change_urls) — скрываем значение
+    masked = re.sub(r"(proxy_key=)[^&\"'\]\s]+", r"\1***", masked)
 
     # Общая маскировка чувствительных ключей (password, token, api_key, secret)
     masked = re.sub(

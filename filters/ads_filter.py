@@ -11,8 +11,13 @@ class AdsFilter:
         self.config = config
         self.is_viewed_fn = is_viewed_fn
 
-    def apply(self, ads: List[Item]) -> List[Item]:
-        """Применяет все фильтры по порядку"""
+    def apply(self, ads: List[Item], min_price=None, max_price=None,
+              white_list=None, black_list=None) -> List[Item]:
+        """Применяет все фильтры по порядку (можно задать цену/слова на конкретную ссылку)."""
+        self._min_price = self.config.min_price if min_price is None else min_price
+        self._max_price = self.config.max_price if max_price is None else max_price
+        self._white_list = white_list or self.config.white_list
+        self._black_list = black_list or self.config.black_list
         filters = [
             self._filter_viewed,
             self._filter_by_price_range,
@@ -38,22 +43,22 @@ class AdsFilter:
         return ads
 
     def _filter_by_price_range(self, ads: List[Item]) -> List[Item]:
-        if not self.config.min_price and not self.config.max_price:
+        if not self._min_price and not self._max_price:
             return ads
         try:
-            return [ad for ad in ads if self.config.min_price <= ad.priceDetailed.value <= self.config.max_price]
+            return [ad for ad in ads if self._min_price <= ad.priceDetailed.value <= self._max_price]
         except Exception:
             return ads
 
     def _filter_by_black_keywords(self, ads: List[Item]) -> List[Item]:
-        if not self.config.keys_word_black_list:
+        if not self._black_list:
             return ads
-        return [ad for ad in ads if not self._is_phrase_in_ads(ad, self.config.keys_word_black_list)]
+        return [ad for ad in ads if not self._is_phrase_in_ads(ad, self._black_list)]
 
     def _filter_by_white_keyword(self, ads: List[Item]) -> List[Item]:
-        if not self.config.keys_word_white_list:
+        if not self._white_list:
             return ads
-        return [ad for ad in ads if self._is_phrase_in_ads(ad, self.config.keys_word_white_list)]
+        return [ad for ad in ads if self._is_phrase_in_ads(ad, self._white_list)]
 
     def _filter_by_address(self, ads: List[Item]) -> List[Item]:
         if not self.config.geo:
