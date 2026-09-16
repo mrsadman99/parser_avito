@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
 
-const EMPTY = { url: '', min_price: '', max_price: '', white_list: '', black_list: '' }
+const EMPTY = { url: '', min_price: '', max_price: '', white_list: '', black_list: '', username: '' }
 
 const SORT_FIELDS = {
   price: { label: 'Цена', key: (a) => a.price ?? 0 },
@@ -18,6 +18,7 @@ function toLinkForm(link) {
     max_price: link.max_price == null ? '' : String(link.max_price),
     white_list: (link.white_list || []).join('\n'),
     black_list: (link.black_list || []).join('\n'),
+    username: link.username || '',
   }
 }
 
@@ -29,6 +30,7 @@ function parseForm(form) {
     max_price: form.max_price === '' ? null : Number(form.max_price),
     white_list: split(form.white_list),
     black_list: split(form.black_list),
+    username: form.username.trim(),
   }
 }
 
@@ -99,6 +101,10 @@ export default function App() {
     const payload = parseForm(form)
     if (!payload.url) {
       setError('Укажите ссылку')
+      return
+    }
+    if (isAdmin && editingId === null && !payload.username) {
+      setError('Укажите логин владельца')
       return
     }
     try {
@@ -238,14 +244,14 @@ export default function App() {
     )
   }
 
-  const showForm = editingId !== null || (!isAdmin && (links.length === 0 || showAddForm))
+  const showForm = editingId !== null || showAddForm || (!isAdmin && links.length === 0)
 
   return (
     <div className="app">
       <header>
         <h1>{isAdmin ? 'Все ссылки (админ)' : 'Мои ссылки для парсинга'}</h1>
         <div className="header-actions">
-          {!isAdmin && links.length >= 1 && !showForm && (
+          {!showForm && (
             <button type="button" onClick={() => setShowAddForm(true)}>＋ Добавить ссылку</button>
           )}
           <button type="button" onClick={logout}>Выйти</button>
@@ -257,6 +263,9 @@ export default function App() {
       {showForm && (
         <form className="link-form" onSubmit={handleSubmit}>
           <h2>{editingId ? 'Изменить ссылку' : 'Добавить ссылку'}</h2>
+          {isAdmin && editingId === null && (
+            <input placeholder="Владелец (логин)" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+          )}
           <input placeholder="Ссылка Avito" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
           <div className="row">
             <input type="number" placeholder="Мин. цена" value={form.min_price} onChange={(e) => setForm({ ...form, min_price: e.target.value })} />
@@ -278,8 +287,10 @@ export default function App() {
 
       <ul className="links">
         {links.map((link) => (
-          <li key={link.id}>
-            {isAdmin && <div className="owner">👤 {link.username}</div>}
+          <li key={link.id ?? link.url}>
+            {isAdmin && (link.readonly
+              ? <div className="owner">📄 из config.toml</div>
+              : <div className="owner">👤 {link.username}</div>)}
             <button type="button" className="link-url-btn" onClick={() => openAds(link)}>
               {link.url}
             </button>
@@ -290,8 +301,12 @@ export default function App() {
               {link.black_list.length > 0 && <span>black: {link.black_list.join(', ')}</span>}
             </div>
             <div className="link-actions">
-              <button type="button" onClick={() => startEdit(link)}>Изменить</button>
-              <button type="button" className="danger" onClick={() => handleDelete(link.id)}>Удалить</button>
+              {!link.readonly && (
+                <>
+                  <button type="button" onClick={() => startEdit(link)}>Изменить</button>
+                  <button type="button" className="danger" onClick={() => handleDelete(link.id)}>Удалить</button>
+                </>
+              )}
             </div>
           </li>
         ))}

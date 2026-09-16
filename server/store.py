@@ -135,6 +135,56 @@ def _fetch_link(conn, link_id: int, user_id: int):
     return row
 
 
+def create_link_any(data: dict) -> dict | None:
+    """Создаёт ссылку от имени указанного пользователя (для админа).
+
+    Если пользователя с таким логином ещё нет — создаёт его с случайным паролем.
+    Возвращает None, если не заданы логин владельца или ссылка.
+    """
+    username = (data.get("username") or "").strip()
+    url = (data.get("url") or "").strip()
+    if not username or not url:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id FROM users WHERE username = ?", (username,)
+        ).fetchone()
+        if row is None:
+            salt, pwd_hash = _hash_password(secrets.token_hex(16))
+            cur = conn.execute(
+                "INSERT INTO users (username, password_hash, salt, created_at) VALUES (?, ?, ?, ?)",
+                (username, pwd_hash, salt, _now_iso()),
+            )
+            user_id = cur.lastrowid
+        else:
+            user_id = row["id"]
+        cur = conn.execute(
+            """
+            INSERT INTO links (user_id, url, min_price, max_price, white_list, black_list, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                url,
+                data.get("min_price"),
+                data.get("max_price"),
+                json.dumps(data.get("white_list") or [], ensure_ascii=False),
+                json.dumps(data.get("black_list") or [], ensure_ascii=False),
+                _now_iso(),
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT l.*, u.username FROM links l JOIN users u ON u.id = l.user_id WHERE l.id = ?",
+            (cur.lastrowid,),
+        ).fetchone()
+
+    link = _link_to_dict(row)
+    link["user_id"] = row["user_id"]
+    link["username"] = row["username"]
+    return link
+
+
 def list_links(user_id: int) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(

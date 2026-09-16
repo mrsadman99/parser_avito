@@ -85,6 +85,7 @@ class LinkRequest(BaseModel):
     max_price: int | None = None
     white_list: list[str] = []
     black_list: list[str] = []
+    username: str | None = None
 
 
 def current_actor(authorization: str | None = Header(default=None)) -> dict:
@@ -138,19 +139,46 @@ def login(req: AuthRequest, request: Request):
     return {"token": token, "username": req.username, "is_admin": False}
 
 
+def _config_links() -> list[dict]:
+    """Ссылки из config.toml ([avito.links]) — только для чтения в админке."""
+    try:
+        config = load_avito_config("config.toml")
+    except Exception:
+        return []
+    result = []
+    for url, lc in (config.links or {}).items():
+        result.append(
+            {
+                "id": None,
+                "url": url,
+                "min_price": lc.min_price,
+                "max_price": lc.max_price,
+                "white_list": list(lc.white_list or []),
+                "black_list": list(lc.black_list or []),
+                "username": "config",
+                "readonly": True,
+            }
+        )
+    return result
+
+
 @app.get("/api/links")
 def list_links(actor: dict = Depends(current_actor)):
     if actor["is_admin"]:
-        return store.list_all_links()
+        db_links = store.list_all_links()
+        db_urls = {link["url"] for link in db_links}
+        config_links = [link for link in _config_links() if link["url"] not in db_urls]
+        return config_links + db_links
     return store.list_links(actor["id"])
 
 
 @app.post("/api/links", status_code=201)
 def create_link(req: LinkRequest, actor: dict = Depends(current_actor)):
     if actor["is_admin"]:
-        raise HTTPException(
-            status_code=403, detail="Админ не создаёт ссылки — добавляйте от имени пользователя"
-        )
+        link = store.create_link_any(req.model_dump())
+        if link is None:
+            raise HTTPException(status_code=400, detail="Укажите логин владельца и ссылку")
+        return link
     return store.create_link(actor["id"], req.model_dump())
 
 
