@@ -98,7 +98,6 @@ class AvitoParse:
             )
             logger.info("Camoufox включён для запросов к поиску")
         self.throttle = RequestThrottle(config.min_delay, config.max_delay)
-        self.ads_filter = AdsFilter(config=config, is_viewed_fn=self.is_viewed)
         log_config(config=self.config, version=VERSION)
 
     def _current_links(self):
@@ -411,7 +410,10 @@ class AvitoParse:
     def filter_ads(self, ads: list[Item], min_price=None, max_price=None,
                    white_list=None, black_list=None, geo=None, start_date=None,
                    ignore_reserv=True, ignore_promotion=False) -> list[Item]:
-        return self.ads_filter.apply(
+        # Свежий экземпляр на вызов: AdsFilter.apply() хранит параметры ссылки
+        # в self.*, поэтому общий экземпляр нельзя переиспользовать между потоками.
+        ads_filter = AdsFilter(config=self.config, is_viewed_fn=self.is_viewed)
+        return ads_filter.apply(
             ads,
             min_price=min_price,
             max_price=max_price,
