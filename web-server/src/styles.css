@@ -185,6 +185,14 @@ header {
   margin-bottom: 12px;
 }
 
+.link-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: #c9d1e0;
+  word-break: break-word;
+  margin-bottom: 12px;
+}
+
 .link-url-btn {
   all: unset;
   display: block;

@@ -74,6 +74,21 @@ function fmtMs(ms) {
   return d.toLocaleString('ru-RU', { hour12: false })
 }
 
+function searchQuery(url) {
+  try {
+    const qs = (url || '').split('?')[1]
+    if (!qs) return ''
+    const q = new URLSearchParams(qs.split('#')[0]).get('q')
+    return q ? q.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+function linkLabel(link) {
+  return searchQuery(link.url) || link.url
+}
+
 function TagInput({ value, onChange, placeholder }) {
   const [text, setText] = useState('')
   const [editingIndex, setEditingIndex] = useState(null)
@@ -362,7 +377,9 @@ export default function App() {
           </div>
           <h1>Объявления</h1>
         </header>
-        <div className="link-subtitle">{selectedLink && selectedLink.url}</div>
+        <div className="link-name" title={selectedLink ? selectedLink.url : ''}>
+          {selectedLink ? linkLabel(selectedLink) : ''}
+        </div>
         {error && <div className="error">{error}</div>}
 
         {sortedAds.length === 0 ? (
@@ -467,8 +484,8 @@ export default function App() {
             {isAdmin && (link.readonly
               ? <div className="owner">📄 из config.toml</div>
               : <div className="owner">👤 {link.username}</div>)}
-            <button type="button" className="link-url-btn" onClick={() => openAds(link)}>
-              {link.url}
+            <button type="button" className="link-url-btn" onClick={() => openAds(link)} title={link.url}>
+              {linkLabel(link)}
             </button>
             <div className="link-meta">
               {link.min_price != null && <span>мин {link.min_price}</span>}
