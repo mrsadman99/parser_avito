@@ -239,3 +239,64 @@ header {
   border-radius: 4px;
   display: block;
 }
+
+.tag-input {
+  background: #171a21;
+  border: 1px solid #333a45;
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 10px;
+}
+
+.tag-input .tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.tag-input .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #23324a;
+  border: 1px solid #2f6fed;
+  color: #cfe1ff;
+  border-radius: 4px;
+  padding: 2px 4px 2px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.tag-input .tag-remove {
+  all: unset;
+  cursor: pointer;
+  color: #8fb6ff;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.tag-input .tag-remove:hover {
+  color: #fff;
+  background: #2f6fed;
+}
+
+.tag-input .tag-field {
+  flex: 1;
+  min-width: 140px;
+  width: auto;
+  margin: 0;
+  padding: 4px 2px;
+  border: none;
+  background: transparent;
+  color: #e6e6e6;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.tag-input .tag-field::placeholder {
+  color: #6b7482;
+}

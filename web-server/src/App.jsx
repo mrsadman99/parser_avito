@@ -20,7 +20,7 @@ const RUSSIAN_CITIES = [
   'Старый Оскол', 'Великий Новгород', 'Энгельс', 'Псков', 'Бийск',
 ]
 
-const EMPTY = { url: '', min_price: '', max_price: '', white_list: '', black_list: '', geo: '', start_date: '', ignore_reserv: true, ignore_promotion: false, username: '' }
+const EMPTY = { url: '', min_price: '', max_price: '', white_list: [], black_list: [], geo: '', start_date: '', ignore_reserv: true, ignore_promotion: false, username: '' }
 
 const SORT_FIELDS = {
   price: { label: 'Цена', key: (a) => a.price ?? 0 },
@@ -35,8 +35,8 @@ function toLinkForm(link) {
     url: link.url,
     min_price: link.min_price == null ? '' : String(link.min_price),
     max_price: link.max_price == null ? '' : String(link.max_price),
-    white_list: (link.white_list || []).join('\n'),
-    black_list: (link.black_list || []).join('\n'),
+    white_list: [...(link.white_list || [])],
+    black_list: [...(link.black_list || [])],
     geo: link.geo || '',
     start_date: link.start_date || '',
     ignore_reserv: link.ignore_reserv == null ? true : Boolean(link.ignore_reserv),
@@ -46,13 +46,12 @@ function toLinkForm(link) {
 }
 
 function parseForm(form) {
-  const split = (s) => s.split('\n').map((x) => x.trim()).filter(Boolean)
   return {
     url: form.url.trim(),
     min_price: form.min_price === '' ? null : Number(form.min_price),
     max_price: form.max_price === '' ? null : Number(form.max_price),
-    white_list: split(form.white_list),
-    black_list: split(form.black_list),
+    white_list: form.white_list,
+    black_list: form.black_list,
     geo: form.geo.trim() || null,
     start_date: form.start_date.trim() || null,
     ignore_reserv: Boolean(form.ignore_reserv),
@@ -73,6 +72,67 @@ function fmtMs(ms) {
   const d = new Date(ms)
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleString('ru-RU', { hour12: false })
+}
+
+function TagInput({ value, onChange, placeholder }) {
+  const [text, setText] = useState('')
+  const tags = Array.isArray(value) ? value : []
+
+  function addMany(words) {
+    const next = [...tags]
+    for (const word of words) {
+      const w = word.trim()
+      if (w && !next.includes(w)) next.push(w)
+    }
+    if (next.length !== tags.length) onChange(next)
+  }
+
+  function commit() {
+    addMany([text])
+    setText('')
+  }
+
+  function handleChange(e) {
+    const raw = e.target.value
+    if (raw.includes(',')) {
+      const parts = raw.split(',')
+      const last = parts.pop()
+      addMany(parts)
+      setText(last)
+    } else {
+      setText(raw)
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      commit()
+    } else if (e.key === 'Backspace' && text === '' && tags.length > 0) {
+      onChange(tags.slice(0, -1))
+    }
+  }
+
+  return (
+    <div className="tag-input">
+      <div className="tags">
+        {tags.map((tag) => (
+          <span className="tag" key={tag}>
+            {tag}
+            <button type="button" className="tag-remove" onClick={() => onChange(tags.filter((t) => t !== tag))}>×</button>
+          </span>
+        ))}
+        <input
+          className="tag-field"
+          value={text}
+          placeholder={tags.length === 0 ? placeholder : ''}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onBlur={commit}
+        />
+      </div>
+    </div>
+  )
 }
 
 export default function App() {
@@ -302,8 +362,16 @@ export default function App() {
             <input type="number" placeholder="Мин. цена" value={form.min_price} onChange={(e) => setForm({ ...form, min_price: e.target.value })} />
             <input type="number" placeholder="Макс. цена" value={form.max_price} onChange={(e) => setForm({ ...form, max_price: e.target.value })} />
           </div>
-          <textarea placeholder="Ключевые слова для поиска (по одному на строку)" value={form.white_list} onChange={(e) => setForm({ ...form, white_list: e.target.value })} />
-          <textarea placeholder="Слова чёрного списка (по одному на строку)" value={form.black_list} onChange={(e) => setForm({ ...form, black_list: e.target.value })} />
+          <TagInput
+            value={form.white_list}
+            onChange={(v) => setForm({ ...form, white_list: v })}
+            placeholder="Ключевые слова — введите и нажмите Enter"
+          />
+          <TagInput
+            value={form.black_list}
+            onChange={(v) => setForm({ ...form, black_list: v })}
+            placeholder="Стоп-слова — введите и нажмите Enter"
+          />
           <div className="row">
             <select value={form.geo} onChange={(e) => setForm({ ...form, geo: e.target.value })}>
               <option value="">Город (без ограничения)</option>
