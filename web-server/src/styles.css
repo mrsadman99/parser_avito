@@ -266,6 +266,25 @@ header {
   padding: 2px 4px 2px 8px;
   font-size: 12px;
   line-height: 1.4;
+  cursor: pointer;
+}
+
+.tag-input .tag:hover {
+  border-color: #8fb6ff;
+}
+
+.tag-input .tag-edit {
+  width: auto;
+  min-width: 70px;
+  margin: 0;
+  padding: 2px 6px;
+  border: 1px solid #2f6fed;
+  border-radius: 4px;
+  background: #0f1115;
+  color: #e6e6e6;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
 }
 
 .tag-input .tag-remove {
