@@ -11,19 +11,11 @@
 [avito]
 # --- Ссылки для мониторинга ---
 # Ссылки задаются в секции [avito.links] в конце файла.
-# Для каждой ссылки можно указать свою цену и ключевые слова.
+# Для каждой ссылки можно указать цену, город, дату, ключевые слова и флаги.
 count = 1                            # сколько страниц объявлений брать за проход
 
-# --- Фильтры (глобальные, по умолчанию для всех ссылок) ---
-white_list = []                      # оставить только с этими словами (заголовок/описание)
-black_list = []                      # исключить эти слова
+# --- Глобальные (не по ссылкам) ---
 seller_black_list = []               # чёрный список продавцов
-max_price = 99999999                 # верхняя граница цены
-min_price = 0                        # нижняя граница цены
-geo = ""                             # фильтр по адресу/региону
-max_age = 0                          # макс. возраст объявления, сек (0 = без ограничения)
-ignore_reserv = true                 # пропускать «Зарезервировано»
-ignore_promotion = false             # пропускать продвигаемые
 
 # --- Обход блокировок (SPFA / cookies) ---
 use_webdriver = true                 # использовать браузер (Playwright)
@@ -34,23 +26,20 @@ purchase_cooldown = 600              # пауза между покупками 
 parse_phone = false                  # парсить телефоны (функция пока не активна)
 
 # --- Паузы и повторы ---
-pause_general = 300                  # пауза между проходами, сек
-pause_between_links = 1              # пауза между ссылками, сек
+pause_general = 300                  # пауза до нового цикла обхода одной ссылки, сек
+min_delay = 1.0                      # мин. задержка между запросами к Avito, сек
+max_delay = 3.0                      # макс. задержка между запросами к Avito, сек
 max_count_of_retry = 5               # макс. повторов запроса
 retry_delay = 5                      # пауза между повторами, сек
 timeout = 20                         # таймаут запроса, сек
 block_threshold = 3                  # блокировок до «обработки бана»
-retry_on_failure = true              # быстрый повтор при неудачном проходе
-retry_on_failure_delay = 30          # пауза перед быстрым повтором, сек
 
-# --- Режим и сохранение ---
-one_time_start = false               # true — однократный проход и завершение
-one_file_for_link = false            # true — отдельный Excel на каждую ссылку
-parse_views = false                  # парсить просмотры (доп. запросы на страницы)
-save_xlsx = true                     # сохранять в Excel
-parse_full_description = false       # полные описания (открывать страницы)
+# --- Полные описания ---
+open_full_ad = false                 # открывать страницы ради полного описания
+
 
 # --- Веб-приложение (server/ + web-server/, запуск: python run.py) ---
+[avito.server]
 server_port = 8000                   # порт REST API + фронтенд
 web_server_port = 3000               # порт React dev-сервера (только python run.py --dev)
 admin_password = ""                  # пароль для входа админа (логин: admin)
@@ -102,11 +91,16 @@ proxy_notifier = ""                  # прокси для Telegram/смены I
 # ============================================================
 # Ссылки для мониторинга (ключ = ссылка, значение = объект)
 #
-# Для каждой ссылки можно задать цену и ключевые слова:
-#   "ссылка" = { min_price = 10000, max_price = 50000, white_list = ["rtx"], black_list = ["сломан"] }
-#   "ссылка" = {}                     # без ограничений (глобальные настройки)
+# Для каждой ссылки можно задать (всё опционально):
+#   min_price / max_price   — диапазон цены
+#   white_list / black_list — ключевые слова (оставить / исключить)
+#   geo                     — город (фильтр по региону)
+#   start_date              — дата "YYYY-MM-DD", с которой искать объявления
+#   ignore_reserv           — true пропускать «Зарезервировано» (по умолчанию true)
+#   ignore_promotion        — true пропускать продвигаемые
+#   "ссылка" = {}           — без ограничений
 # ============================================================
 [avito.links]
 "https://www.avito.ru/novosibirsk/nastolnye_kompyutery?q=игровой+пк" = {}
-# "https://www.avito.ru/novosibirsk/videokarty?q=rtx" = { min_price = 10000, max_price = 50000, white_list = ["rtx"], black_list = ["сломан"] }
-# "https://www.avito.ru/novosibirsk/noutbuki?q=macbook" = { max_price = 80000 }
+# "https://www.avito.ru/novosibirsk/videokarty?q=rtx" = { min_price = 10000, max_price = 50000, white_list = ["rtx"], black_list = ["сломан"], geo = "Новосибирск", start_date = "2026-01-01", ignore_promotion = true }
+# "https://www.avito.ru/novosibirsk/noutbuki?q=macbook" = { max_price = 80000, ignore_reserv = false }

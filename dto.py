@@ -19,11 +19,15 @@ class ProxySplit:
 
 @dataclass
 class LinkConfig:
-    """Настройки отдельной ссылки (цена и ключевые слова опциональны)."""
+    """Настройки отдельной ссылки (всё опционально)."""
     min_price: Optional[int] = None
     max_price: Optional[int] = None
     white_list: List[str] = field(default_factory=list)
     black_list: List[str] = field(default_factory=list)
+    geo: Optional[str] = None                 # город (фильтр по региону)
+    start_date: Optional[str] = None          # дата "YYYY-MM-DD", с которой искать объявления
+    ignore_reserv: bool = True                # пропускать «Зарезервировано»
+    ignore_promotion: bool = False            # пропускать продвигаемые
 
 
 @dataclass
@@ -68,30 +72,30 @@ class MessengersConfig:
 
 
 @dataclass
+class ServerConfig:
+    """Настройки веб-приложения (server/ + web-server/, запуск: python run.py)."""
+    server_port: int = 8000            # порт REST API + фронтенд
+    web_server_port: int = 3000        # порт React dev-сервера (только run.py --dev)
+    admin_password: str = ""           # пароль админки (логин: admin)
+    server_host: str = "127.0.0.1"     # интерфейс API (0.0.0.0 — слушать наружу)
+    cors_origins: List[str] = field(default_factory=list)  # доп. разрешённые origins
+
+
+@dataclass
 class AvitoConfig:
     links: Dict[str, LinkConfig] = field(default_factory=dict)
     camoufox: CamoufoxConfig = field(default_factory=CamoufoxConfig)
     adb_proxy: AdbProxyConfig = field(default_factory=AdbProxyConfig)
     mobile_proxy: MobileProxyConfig = field(default_factory=MobileProxyConfig)
     messengers: MessengersConfig = field(default_factory=MessengersConfig)
-    white_list: List[str] = field(default_factory=list)
-    black_list: List[str] = field(default_factory=list)
+    server: ServerConfig = field(default_factory=ServerConfig)
     seller_black_list: List[str] = field(default_factory=list)
     count: int = 1
-    max_price: int = 999_999_999
-    min_price: int = 0
-    geo: Optional[str] = None
-    max_age: int = 24 * 60 * 60
     debug_mode: int = 0
     pause_general: int = 60
-    pause_between_links: int = 5
+    min_delay: float = 1.0      # мин. задержка между запросами к Avito, сек
+    max_delay: float = 3.0      # макс. задержка между запросами к Avito, сек
     max_count_of_retry: int = 5
-    ignore_reserv: bool = True
-    ignore_promotion: bool = False
-    one_time_start: bool = False
-    one_file_for_link: bool = False
-    parse_views: bool = False
-    save_xlsx: bool = True
     use_webdriver: bool = True
     use_bypass_api: bool = False
     cookies_api_key: str = None
@@ -102,12 +106,4 @@ class AvitoConfig:
     retry_delay: int = 5
     timeout: int = 20
     block_threshold: int = 3
-    retry_on_failure: bool = True
-    retry_on_failure_delay: int = 30
-    parse_full_description: bool = False
-    # Веб-приложение (server/ + web-server/)
-    server_port: int = 8000            # порт REST API
-    web_server_port: int = 3000        # порт React dev-сервера
-    admin_password: str = ""           # пароль админки (логин: admin)
-    server_host: str = "127.0.0.1"     # интерфейс API (0.0.0.0 — слушать наружу)
-    cors_origins: List[str] = field(default_factory=list)  # доп. разрешённые origins
+    open_full_ad: bool = False

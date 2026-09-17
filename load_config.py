@@ -11,6 +11,7 @@ from dto import (
     AdbProxyConfig,
     MobileProxyConfig,
     MessengersConfig,
+    ServerConfig,
 )
 
 
@@ -18,6 +19,7 @@ from dto import (
 _FIELD_RENAMES = {
     "keys_word_white_list": "white_list",
     "keys_word_black_list": "black_list",
+    "parse_full_description": "open_full_ad",
 }
 
 
@@ -92,6 +94,15 @@ def _migrate_legacy(avito: dict, flat: dict) -> None:
             proxy_notifier=avito.get("proxy_notifier"),
         )
 
+    if not avito.get("server"):
+        flat["server"] = ServerConfig(
+            server_port=avito.get("server_port", 8000),
+            web_server_port=avito.get("web_server_port", 3000),
+            admin_password=avito.get("admin_password", ""),
+            server_host=avito.get("server_host", "127.0.0.1"),
+            cors_origins=avito.get("cors_origins", []),
+        )
+
 
 def load_avito_config(path: str = "config.toml") -> AvitoConfig:
     with open(path, "rb") as f:
@@ -113,6 +124,7 @@ def load_avito_config(path: str = "config.toml") -> AvitoConfig:
     flat["adb_proxy"] = _coerce(AdbProxyConfig, avito.get("adb_proxy"))
     flat["mobile_proxy"] = _coerce(MobileProxyConfig, avito.get("mobile_proxy"))
     flat["messengers"] = _coerce(MessengersConfig, avito.get("messengers"))
+    flat["server"] = _coerce(ServerConfig, avito.get("server"))
 
     _migrate_legacy(avito, flat)
 
@@ -138,11 +150,27 @@ def _format_links(links: dict) -> str:
     for url, cfg in (links or {}).items():
         cfg = cfg or {}
         parts = []
-        for key in ("min_price", "max_price", "white_list", "black_list"):
-            value = cfg.get(key)
-            if value is None or value == []:
-                continue
+
+        def add(key, value):
             parts.append(f"{key} = {_toml_inline(value)}")
+
+        for key in ("min_price", "max_price"):
+            value = cfg.get(key)
+            if value is not None:
+                add(key, value)
+        for key in ("white_list", "black_list"):
+            value = cfg.get(key)
+            if value:
+                add(key, value)
+        for key in ("geo", "start_date"):
+            value = cfg.get(key)
+            if value:
+                add(key, value)
+        if cfg.get("ignore_reserv") is False:
+            add("ignore_reserv", False)
+        if cfg.get("ignore_promotion") is True:
+            add("ignore_promotion", True)
+
         lines.append(f'{_toml_inline(url)} = {{ {", ".join(parts)} }}')
     return "\n".join(lines)
 

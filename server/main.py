@@ -34,9 +34,9 @@ try:
 except Exception:
     _CONFIG = None
 
-_ADMIN_PASSWORD = (_CONFIG.admin_password or "").strip() if _CONFIG else ""
-_WEB_PORT = _CONFIG.web_server_port if _CONFIG else 3000
-_CORS_EXTRA = list(_CONFIG.cors_origins or []) if _CONFIG else []
+_ADMIN_PASSWORD = (_CONFIG.server.admin_password or "").strip() if _CONFIG else ""
+_WEB_PORT = _CONFIG.server.web_server_port if _CONFIG else 3000
+_CORS_EXTRA = list(_CONFIG.server.cors_origins or []) if _CONFIG else []
 
 if _ADMIN_PASSWORD in ("", "admin"):
     logger.warning(
@@ -85,6 +85,10 @@ class LinkRequest(BaseModel):
     max_price: int | None = None
     white_list: list[str] = []
     black_list: list[str] = []
+    geo: str | None = None
+    start_date: str | None = None
+    ignore_reserv: bool | None = None
+    ignore_promotion: bool | None = None
     username: str | None = None
 
 
@@ -155,6 +159,10 @@ def _config_links() -> list[dict]:
                 "max_price": lc.max_price,
                 "white_list": list(lc.white_list or []),
                 "black_list": list(lc.black_list or []),
+                "geo": lc.geo,
+                "start_date": lc.start_date,
+                "ignore_reserv": lc.ignore_reserv,
+                "ignore_promotion": lc.ignore_promotion,
                 "username": "config",
                 "readonly": True,
             }

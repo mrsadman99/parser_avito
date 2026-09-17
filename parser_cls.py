@@ -2,8 +2,8 @@ import html as html_lib
 import json
 import random
 import re
+import threading
 import time
-from datetime import datetime, timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
@@ -31,6 +31,29 @@ from lang import SPFA_PROXY_REQUIRED
 DEBUG_MODE = False
 
 logger.add("logs/app.log", rotation="5 MB", retention="5 days", level="DEBUG")
+
+
+class RequestThrottle:
+    """Сериализует все запросы к Avito общей случайной задержкой между ними.
+
+    Запросы от разных ссылок/потоков встают в очередь на блокировке; перед
+    каждым следующим запросом выдерживается случайная пауза в [min_delay, max_delay].
+    Пауза запускается только после того, как предыдущий запрос полностью обработался.
+    """
+
+    def __init__(self, min_delay: float, max_delay: float):
+        self.min_delay = max(0.0, float(min_delay))
+        self.max_delay = max(self.min_delay, float(max_delay))
+        self._lock = threading.Lock()
+        self._first = True
+
+    def run(self, fn, *args, **kwargs):
+        with self._lock:
+            if self._first:
+                self._first = False
+            else:
+                time.sleep(random.uniform(self.min_delay, self.max_delay))
+            return fn(*args, **kwargs)
 
 
 class AvitoParse:
@@ -74,13 +97,9 @@ class AvitoParse:
                 block_threshold=config.block_threshold,
             )
             logger.info("Camoufox включён для запросов к поиску")
+        self.throttle = RequestThrottle(config.min_delay, config.max_delay)
         self.ads_filter = AdsFilter(config=config, is_viewed_fn=self.is_viewed)
         log_config(config=self.config, version=VERSION)
-
-    @property
-    def run_failed(self) -> bool:
-        """Проход считается неудачным, если все запросы завершились ошибкой/блокировкой."""
-        return self.bad_request_count > 0 and self.good_request_count == 0
 
     def _current_links(self):
         """Актуальный набор ссылок: из внешнего провайдера (веб), иначе из конфига."""
@@ -102,15 +121,34 @@ class AvitoParse:
         logger.info("Работаем без прокси")
         return None
 
+    def _is_stopped(self) -> bool:
+        return self.stop_event is not None and self.stop_event.is_set()
+
+    def _sleep_interruptible(self, seconds: float) -> None:
+        """Спит указанное время, прерываясь по stop_event."""
+        if seconds <= 0:
+            return
+        if self.stop_event is None:
+            time.sleep(seconds)
+            return
+        end = time.time() + seconds
+        while time.time() < end:
+            if self.stop_event.is_set():
+                return
+            time.sleep(min(1.0, end - time.time()))
+
+    def _request(self, url: str):
+        """Единый запрос к Avito через общий троттлинг (общая случайная задержка)."""
+        if self.camoufox:
+            return self.throttle.run(self.camoufox.request, "GET", url)
+        return self.throttle.run(self.http.request, "GET", url)
+
     def fetch_data(self, url: str) -> str | None:
-        if self.stop_event and self.stop_event.is_set():
+        if self._is_stopped():
             return None
 
         try:
-            if self.camoufox:
-                response = self.camoufox.request("GET", url)
-            else:
-                response = self.http.request("GET", url)
+            response = self._request(url)
             self.good_request_count += 1
             return response.text
 
@@ -134,15 +172,12 @@ class AvitoParse:
         )
 
     def fetch_api_data(self, api_url: str, page: int) -> dict | None:
-        if self.stop_event and self.stop_event.is_set():
+        if self._is_stopped():
             return None
 
         page_url = self._api_url_for_page(api_url, page)
         try:
-            if self.camoufox:
-                response = self.camoufox.request("GET", page_url)
-            else:
-                response = self.http.request("GET", page_url)
+            response = self._request(page_url)
             self.good_request_count += 1
             return response.json()
         except Exception as err:
@@ -184,10 +219,7 @@ class AvitoParse:
         return url
 
     def parse(self):
-        links = self._current_links()
-
-        if not self.config.one_file_for_link:
-            self.result_storage = build_result_storage(config=self.config)
+        self.result_storage = build_result_storage(config=self.config)
 
         current_ip = self.http.get_current_ip()
         if current_ip:
@@ -198,136 +230,148 @@ class AvitoParse:
         else:
             logger.warning("Не удалось определить текущий IP")
 
+        workers: dict[str, threading.Thread] = {}
 
-        api_urls = {}
-        for source_url in links:
-            if self.stop_event and self.stop_event.is_set():
-                return
-            try:
-                api_urls[source_url] = self.url_converter.convert(source_url)
-            except Exception as err:
-                logger.error(
-                    f"Не удалось преобразовать ссылку Avito в API URL "
-                    f"{source_url}: {err}"
-                )
+        # Шедулер: следит за активными ссылками, запускает/убирает воркеры.
+        while not self._is_stopped():
+            links = self._current_links()
 
-        for link_index, (source_url, link_cfg) in enumerate(links.items()):
-            api_url = api_urls.get(source_url)
-            if not api_url:
-                logger.warning(f"⚠️ Не удалось получить API-адрес для ссылки: {source_url}")
-                continue
-
-            if self.config.one_file_for_link:
-                self.result_storage = build_result_storage(
-                    config=self.config,
-                    link_index=link_index,
-                )
-
-            query_label = self._query_label(source_url)
-            if link_cfg.min_price is not None or link_cfg.max_price is not None:
-                lo = link_cfg.min_price if link_cfg.min_price is not None else 0
-                hi = link_cfg.max_price if link_cfg.max_price is not None else "∞"
-                logger.info(f"Ценовой диапазон ссылки: {lo} – {hi}")
-            blocks_before = self.http.block_count
-            errors_before = self.http.error_count
-            link_got_data = False
-            ads_in_link = []
-
-            logger.info(f"🔍 Сканирую ссылку: {query_label}")
-
-            for page in range(1, self.config.count + 1):
-                logger.info(f"page={page}")
-                if self.stop_event and self.stop_event.is_set():
-                    return
-
-                json_data = self.fetch_api_data(api_url=api_url, page=page)
-                if not json_data:
-                    logger.warning(
-                        f"Не удалось получить данные API для {query_label}, "
-                        f"повтор через {self.config.pause_between_links} сек."
+            for source_url, link_cfg in links.items():
+                if source_url not in workers:
+                    t = threading.Thread(
+                        target=self._link_cycle,
+                        args=(source_url, link_cfg),
+                        daemon=True,
                     )
-                    time.sleep(self.config.pause_between_links)
-                    continue
+                    t.start()
+                    workers[source_url] = t
 
-                link_got_data = True
-                catalog = self._extract_api_catalog(json_data)
-                try:
-                    ads_models = ItemsResponse(**catalog)
-                except ValidationError as err:
-                    logger.error(
-                        f"При валидации объявлений произошла ошибка: {err}"
-                    )
-                    continue
+            for source_url in list(workers):
+                if not workers[source_url].is_alive():
+                    del workers[source_url]
 
-                ads = self._clean_null_ads(ads=ads_models.items)
-                logger.info(f"Объявлений перед фильтрацией {len(ads)}")
-                ads = self._add_seller_to_ads(ads=ads)
-                ads = self._add_promotion_to_ads(ads=ads)
-                ads = self._add_seller_rating(ads=ads)
-
-                if not ads:
-                    logger.info(
-                        "Объявления закончились, завершаю работу с данной ссылкой"
-                    )
-                    break
-
-                filtered_ads = self.filter_ads(
-                    ads=ads,
-                    min_price=link_cfg.min_price,
-                    max_price=link_cfg.max_price,
-                    white_list=link_cfg.white_list,
-                    black_list=link_cfg.black_list,
-                )
-
-                filtered_ads = self.parse_full_description(ads=filtered_ads)
-
-                try:
-                    self.notifier.notify_many(ads=filtered_ads)
-                except Exception as err:
-                    logger.warning(f"Ошибка при отправке уведомлений: {err}")
-
-                filtered_ads = self.parse_views(ads=filtered_ads)
-                filtered_ads = self.parse_phone(ads=filtered_ads)
-
-                if filtered_ads:
-                    self.__save_viewed(ads=filtered_ads, source_url=source_url)
-                    ads_in_link.extend(filtered_ads)
-
-                logger.info(f"Пауза {self.config.pause_between_links} сек.")
-                time.sleep(self.config.pause_between_links)
-
-            # --- Итог сканирования ссылки ---
-            blocks = self.http.block_count - blocks_before
-            errors = self.http.error_count - errors_before
-            if link_got_data:
-                status = "✅ успешно"
-            elif blocks > 0:
-                status = "🚫 заблокирован"
-            else:
-                status = "❌ не удалось"
-            logger.info(
-                f"📊 Сканирование: {query_label} | "
-                f"объявлений: {len(ads_in_link)} | "
-                f"статус: {status} | "
-                f"блокировок: {blocks} | ошибок: {errors}"
-            )
-
-            if ads_in_link:
-                logger.info(f"Сохраняю {len(ads_in_link)} объявлений")
-                self.result_storage.save(ads_in_link)
-            else:
-                logger.info("Сохранять нечего")
+            self._sleep_interruptible(3.0)
 
         logger.info(
             f"Хорошие запросы: {self.good_request_count}шт, "
             f"плохие: {self.bad_request_count}шт"
         )
 
-        if self.config.one_time_start:
-            self.notifier.notify(
-                message="Парсинг Авито завершён. Все ссылки обработаны"
+    def _link_cycle(self, source_url: str, link_cfg):
+        """Цикл обработки одной ссылки: полный обход, затем пауза pause_general.
+
+        После каждого цикла ссылка перечитывается: если её удалили — воркер
+        завершается, если настройки поменялись — применяются новые.
+        """
+        try:
+            api_url = self.url_converter.convert(source_url)
+        except Exception as err:
+            logger.error(
+                f"Не удалось преобразовать ссылку Avito в API URL "
+                f"{source_url}: {err}"
             )
-            self.stop_event = True
+            return
+
+        while not self._is_stopped():
+            current_links = self._current_links()
+            if source_url not in current_links:
+                logger.info(
+                    f"🔗 Ссылка удалена, завершаю работу: {self._query_label(source_url)}"
+                )
+                return
+            link_cfg = current_links[source_url]
+
+            self._process_link(source_url, link_cfg, api_url)
+
+            if self._is_stopped():
+                return
+            logger.info(
+                f"Пауза до следующего цикла ссылки {self._query_label(source_url)}: "
+                f"{self.config.pause_general} сек."
+            )
+            self._sleep_interruptible(self.config.pause_general)
+
+    def _process_link(self, source_url: str, link_cfg, api_url: str):
+        """Один полный обход ссылки: все страницы + фильтрация + сохранение."""
+        query_label = self._query_label(source_url)
+        if link_cfg.min_price is not None or link_cfg.max_price is not None:
+            lo = link_cfg.min_price if link_cfg.min_price is not None else 0
+            hi = link_cfg.max_price if link_cfg.max_price is not None else "∞"
+            logger.info(f"Ценовой диапазон ссылки: {lo} – {hi}")
+        link_got_data = False
+        ads_in_link = []
+
+        logger.info(f"🔍 Сканирую ссылку: {query_label}")
+
+        for page in range(1, self.config.count + 1):
+            logger.info(f"page={page}")
+            if self._is_stopped():
+                return
+
+            json_data = self.fetch_api_data(api_url=api_url, page=page)
+            if not json_data:
+                logger.warning(f"Не удалось получить данные API для {query_label}")
+                continue
+
+            link_got_data = True
+            catalog = self._extract_api_catalog(json_data)
+            try:
+                ads_models = ItemsResponse(**catalog)
+            except ValidationError as err:
+                logger.error(
+                    f"При валидации объявлений произошла ошибка: {err}"
+                )
+                continue
+
+            ads = self._clean_null_ads(ads=ads_models.items)
+            logger.info(f"Объявлений перед фильтрацией {len(ads)}")
+            ads = self._add_seller_to_ads(ads=ads)
+            ads = self._add_promotion_to_ads(ads=ads)
+            ads = self._add_seller_rating(ads=ads)
+
+            if not ads:
+                logger.info(
+                    "Объявления закончились, завершаю работу с данной ссылкой"
+                )
+                break
+
+            filtered_ads = self.filter_ads(
+                ads=ads,
+                min_price=link_cfg.min_price,
+                max_price=link_cfg.max_price,
+                white_list=link_cfg.white_list,
+                black_list=link_cfg.black_list,
+                geo=link_cfg.geo,
+                start_date=link_cfg.start_date,
+                ignore_reserv=link_cfg.ignore_reserv,
+                ignore_promotion=link_cfg.ignore_promotion,
+            )
+
+            filtered_ads = self.open_full_ad(ads=filtered_ads)
+
+            try:
+                self.notifier.notify_many(ads=filtered_ads)
+            except Exception as err:
+                logger.warning(f"Ошибка при отправке уведомлений: {err}")
+
+            filtered_ads = self.parse_phone(ads=filtered_ads)
+
+            if filtered_ads:
+                self.__save_viewed(ads=filtered_ads, source_url=source_url)
+                ads_in_link.extend(filtered_ads)
+
+        status = "✅ успешно" if link_got_data else "❌ не удалось"
+        logger.info(
+            f"📊 Сканирование: {query_label} | "
+            f"объявлений: {len(ads_in_link)} | "
+            f"статус: {status}"
+        )
+
+        if ads_in_link:
+            logger.info(f"Сохраняю {len(ads_in_link)} объявлений")
+            self.result_storage.save(ads_in_link)
+        else:
+            logger.info("Сохранять нечего")
 
     def close(self):
         """Освобождает ресурсы (Camoufox-браузер)."""
@@ -365,13 +409,18 @@ class AvitoParse:
 
 
     def filter_ads(self, ads: list[Item], min_price=None, max_price=None,
-                   white_list=None, black_list=None) -> list[Item]:
+                   white_list=None, black_list=None, geo=None, start_date=None,
+                   ignore_reserv=True, ignore_promotion=False) -> list[Item]:
         return self.ads_filter.apply(
             ads,
             min_price=min_price,
             max_price=max_price,
             white_list=white_list,
             black_list=black_list,
+            geo=geo,
+            start_date=start_date,
+            ignore_reserv=ignore_reserv,
+            ignore_promotion=ignore_promotion,
         )
 
     def _add_seller_to_ads(self, ads: list[Item]) -> list[Item]:
@@ -405,33 +454,13 @@ class AvitoParse:
                     ad.seller_reviews = int(digits)
         return ads
 
-    def parse_views(self, ads: list[Item]) -> list[Item]:
-        if not self.config.parse_views:
-            return ads
-
-        logger.info("Начинаю парсинг просмотров")
-
-        for ad in ads:
-            try:
-                html_code_full_page = self.fetch_data(url=f"https://www.avito.ru{ad.urlPath}")
-                if not html_code_full_page:
-                    continue
-                ad.total_views, ad.today_views = self._extract_views(html=html_code_full_page)
-                delay = random.uniform(0.1, 0.9)
-                time.sleep(delay)
-            except Exception as err:
-                logger.warning(f"Ошибка при парсинге {ad.urlPath}: {err}")
-                continue
-
-        return ads
-
-    def parse_full_description(self, ads: list[Item]) -> list[Item]:
+    def open_full_ad(self, ads: list[Item]) -> list[Item]:
         """Открывает страницу каждого объявления и подтягивает ПОЛНОЕ описание.
 
         В выдаче API каталога описание обрезано (~250 символов), поэтому для
         полного текста делаем отдельный запрос на страницу объявления.
         """
-        if not self.config.parse_full_description:
+        if not self.config.open_full_ad:
             return ads
 
         logger.info("Начинаю парсинг полных описаний")
@@ -515,18 +544,6 @@ class AvitoParse:
             return ads
 
     @staticmethod
-    def _extract_views(html: str) -> tuple:
-        soup = BeautifulSoup(html, "html.parser")
-
-        def extract_digits(element):
-            return int(''.join(filter(str.isdigit, element.get_text()))) if element else None
-
-        total = extract_digits(soup.select_one('[data-marker="item-view/total-views"]'))
-        today = extract_digits(soup.select_one('[data-marker="item-view/today-views"]'))
-
-        return total, today
-
-    @staticmethod
     def _extract_seller_slug(data):
         match = re.search(r"/brands/([^/?#]+)", str(data))
         if match:
@@ -536,12 +553,6 @@ class AvitoParse:
     def is_viewed(self, ad: Item) -> bool:
         """Проверяет, смотрели мы это или нет"""
         return self.db_handler.record_exists(record_id=ad.id, price=ad.priceDetailed.value)
-
-    @staticmethod
-    def _is_recent(timestamp_ms: int, max_age_seconds: int) -> bool:
-        now = datetime.utcnow()
-        published_time = datetime.utcfromtimestamp(timestamp_ms / 1000)
-        return (now - published_time) <= timedelta(seconds=max_age_seconds)
 
     def __save_viewed(self, ads: list[Item], source_url: str = None) -> None:
         """Сохраняет просмотренные объявления и ставит дату сканирования (UTC)."""
@@ -561,34 +572,19 @@ if __name__ == "__main__":
         logger.error(f"Ошибка загрузки конфига: {err}")
         exit(1)
 
-    if config.use_bypass_api and not (config.proxy_string or "").strip():
+    if config.use_bypass_api and not (config.mobile_proxy.proxy_string or "").strip():
         logger.critical(f"SPFA не будет работать без прокси. {SPFA_PROXY_REQUIRED}")
         exit(1)
 
-    if config.use_bypass_api and not config.proxy_change_url:
+    if config.use_bypass_api and not config.mobile_proxy.change_url:
         logger.warning(
             "SPFA запущен с серверным (статическим) прокси. Если будет много ошибок - установить большие "
-            "pause_between_links и pause_general, чтобы снизить риск блокировок."
+            "min_delay/max_delay и pause_general, чтобы снизить риск блокировок."
         )
 
-    while True:
-        try:
-            parser = AvitoParse(config)
-            parser.parse()
-            if config.one_time_start:
-                logger.info("Парсинг завершен т.к. включён one_time_start в настройках")
-                break
-            if config.retry_on_failure and parser.run_failed:
-                logger.info(
-                    f"Парсинг не удался ({parser.bad_request_count} ошибок, "
-                    f"{parser.good_request_count} успешных). Повтор через "
-                    f"{config.retry_on_failure_delay} сек (без pause_general)"
-                )
-                time.sleep(config.retry_on_failure_delay)
-                continue
-            logger.info(f"Парсинг завершен. Пауза {config.pause_general} сек")
-            time.sleep(config.pause_general)
-        except Exception as err:
-            logger.exception(err)
-            logger.error(f"Произошла ошибка {err}. Будет повторный запуск через 30 сек.")
-            time.sleep(30)
+    try:
+        AvitoParse(config).parse()
+    except KeyboardInterrupt:
+        logger.info("Парсинг остановлен")
+    except Exception as err:
+        logger.exception(err)

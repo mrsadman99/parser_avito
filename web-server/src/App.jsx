@@ -1,7 +1,26 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
 
-const EMPTY = { url: '', min_price: '', max_price: '', white_list: '', black_list: '', username: '' }
+const RUSSIAN_CITIES = [
+  'Москва', 'Санкт-Петербург', 'Новосибирск', 'Екатеринбург', 'Казань',
+  'Нижний Новгород', 'Челябинск', 'Самара', 'Омск', 'Ростов-на-Дону',
+  'Уфа', 'Красноярск', 'Воронеж', 'Пермь', 'Волгоград', 'Краснодар',
+  'Саратов', 'Тюмень', 'Тольятти', 'Ижевск', 'Барнаул', 'Ульяновск',
+  'Иркутск', 'Хабаровск', 'Ярославль', 'Владивосток', 'Махачкала',
+  'Томск', 'Оренбург', 'Кемерово', 'Новокузнецк', 'Рязань', 'Астрахань',
+  'Набережные Челны', 'Пенза', 'Липецк', 'Киров', 'Чебоксары', 'Тула',
+  'Калининград', 'Курск', 'Севастополь', 'Сочи', 'Ставрополь', 'Улан-Удэ',
+  'Тверь', 'Магнитогорск', 'Иваново', 'Брянск', 'Белгород', 'Сургут',
+  'Владимир', 'Нижний Тагил', 'Архангельск', 'Чита', 'Симферополь', 'Калуга',
+  'Смоленск', 'Волжский', 'Якутск', 'Саранск', 'Череповец', 'Курган', 'Орёл',
+  'Вологда', 'Владикавказ', 'Подольск', 'Грозный', 'Мурманск', 'Тамбов',
+  'Стерлитамак', 'Петрозаводск', 'Кострома', 'Нижневартовск', 'Новороссийск',
+  'Йошкар-Ола', 'Таганрог', 'Комсомольск-на-Амуре', 'Сыктывкар', 'Нальчик',
+  'Шахты', 'Братск', 'Дзержинск', 'Орск', 'Ангарск', 'Благовещенск', 'Химки',
+  'Старый Оскол', 'Великий Новгород', 'Энгельс', 'Псков', 'Бийск',
+]
+
+const EMPTY = { url: '', min_price: '', max_price: '', white_list: '', black_list: '', geo: '', start_date: '', ignore_reserv: true, ignore_promotion: false, username: '' }
 
 const SORT_FIELDS = {
   price: { label: 'Цена', key: (a) => a.price ?? 0 },
@@ -18,6 +37,10 @@ function toLinkForm(link) {
     max_price: link.max_price == null ? '' : String(link.max_price),
     white_list: (link.white_list || []).join('\n'),
     black_list: (link.black_list || []).join('\n'),
+    geo: link.geo || '',
+    start_date: link.start_date || '',
+    ignore_reserv: link.ignore_reserv == null ? true : Boolean(link.ignore_reserv),
+    ignore_promotion: Boolean(link.ignore_promotion),
     username: link.username || '',
   }
 }
@@ -30,18 +53,26 @@ function parseForm(form) {
     max_price: form.max_price === '' ? null : Number(form.max_price),
     white_list: split(form.white_list),
     black_list: split(form.black_list),
+    geo: form.geo.trim() || null,
+    start_date: form.start_date.trim() || null,
+    ignore_reserv: Boolean(form.ignore_reserv),
+    ignore_promotion: Boolean(form.ignore_promotion),
     username: form.username.trim(),
   }
 }
 
 function fmtScan(iso) {
   if (!iso) return ''
-  return String(iso).replace('T', ' ').slice(0, 19)
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return String(iso)
+  return d.toLocaleString('ru-RU', { hour12: false })
 }
 
 function fmtMs(ms) {
-  if (ms == null) return ''
-  return new Date(ms).toLocaleString('ru-RU', { hour12: false })
+  if (ms == null || ms === '') return ''
+  const d = new Date(ms)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString('ru-RU', { hour12: false })
 }
 
 export default function App() {
@@ -274,6 +305,17 @@ export default function App() {
           <textarea placeholder="Ключевые слова для поиска (по одному на строку)" value={form.white_list} onChange={(e) => setForm({ ...form, white_list: e.target.value })} />
           <textarea placeholder="Слова чёрного списка (по одному на строку)" value={form.black_list} onChange={(e) => setForm({ ...form, black_list: e.target.value })} />
           <div className="row">
+            <select value={form.geo} onChange={(e) => setForm({ ...form, geo: e.target.value })}>
+              <option value="">Город (без ограничения)</option>
+              {RUSSIAN_CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <input type="date" title="Искать объявления с этой даты" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
+          </div>
+          <div className="row checkboxes">
+            <label><input type="checkbox" checked={form.ignore_reserv} onChange={(e) => setForm({ ...form, ignore_reserv: e.target.checked })} /> Пропускать «Зарезервировано»</label>
+            <label><input type="checkbox" checked={form.ignore_promotion} onChange={(e) => setForm({ ...form, ignore_promotion: e.target.checked })} /> Пропускать продвигаемые</label>
+          </div>
+          <div className="row">
             <button type="submit">{editingId ? 'Сохранить' : 'Добавить'}</button>
             {editingId !== null && (
               <button type="button" onClick={() => { setEditingId(null); setForm(EMPTY) }}>Отмена</button>
@@ -297,8 +339,12 @@ export default function App() {
             <div className="link-meta">
               {link.min_price != null && <span>мин {link.min_price}</span>}
               {link.max_price != null && <span>макс {link.max_price}</span>}
+              {link.geo && <span>город: {link.geo}</span>}
+              {link.start_date && <span>с {link.start_date}</span>}
               {link.white_list.length > 0 && <span>white: {link.white_list.join(', ')}</span>}
               {link.black_list.length > 0 && <span>black: {link.black_list.join(', ')}</span>}
+              {link.ignore_reserv === false && <span>включая резервы</span>}
+              {link.ignore_promotion && <span>без продвигаемых</span>}
             </div>
             <div className="link-actions">
               {!link.readonly && (

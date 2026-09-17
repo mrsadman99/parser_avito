@@ -27,6 +27,20 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+# Колонки, добавляемые в старые БД (миграция)
+_LINK_EXTRA_COLUMNS = {
+    "geo": "TEXT",
+    "start_date": "TEXT",
+    "ignore_reserv": "INTEGER NOT NULL DEFAULT 1",
+    "ignore_promotion": "INTEGER NOT NULL DEFAULT 0",
+}
+
+
+def _bool_int(value, default: bool) -> int:
+    """Приводит опциональный bool к 0/1 для SQLite."""
+    return int(default if value is None else bool(value))
+
+
 def init_db() -> None:
     with _connect() as conn:
         conn.execute("PRAGMA journal_mode=WAL")
@@ -52,11 +66,19 @@ def init_db() -> None:
                 max_price INTEGER,
                 white_list TEXT NOT NULL DEFAULT '[]',
                 black_list TEXT NOT NULL DEFAULT '[]',
+                geo TEXT,
+                start_date TEXT,
+                ignore_reserv INTEGER NOT NULL DEFAULT 1,
+                ignore_promotion INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY(user_id) REFERENCES users(id)
             )
             """
         )
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(links)")}
+        for col, ddl in _LINK_EXTRA_COLUMNS.items():
+            if col not in existing:
+                conn.execute(f"ALTER TABLE links ADD COLUMN {col} {ddl}")
         conn.commit()
 
 
@@ -125,6 +147,10 @@ def _link_to_dict(row) -> dict:
         "max_price": row["max_price"],
         "white_list": json.loads(row["white_list"] or "[]"),
         "black_list": json.loads(row["black_list"] or "[]"),
+        "geo": row["geo"],
+        "start_date": row["start_date"],
+        "ignore_reserv": bool(row["ignore_reserv"]),
+        "ignore_promotion": bool(row["ignore_promotion"]),
     }
 
 
@@ -160,8 +186,9 @@ def create_link_any(data: dict) -> dict | None:
             user_id = row["id"]
         cur = conn.execute(
             """
-            INSERT INTO links (user_id, url, min_price, max_price, white_list, black_list, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO links (user_id, url, min_price, max_price, white_list, black_list,
+                               geo, start_date, ignore_reserv, ignore_promotion, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -170,6 +197,10 @@ def create_link_any(data: dict) -> dict | None:
                 data.get("max_price"),
                 json.dumps(data.get("white_list") or [], ensure_ascii=False),
                 json.dumps(data.get("black_list") or [], ensure_ascii=False),
+                data.get("geo"),
+                data.get("start_date"),
+                _bool_int(data.get("ignore_reserv"), True),
+                _bool_int(data.get("ignore_promotion"), False),
                 _now_iso(),
             ),
         )
@@ -198,8 +229,9 @@ def create_link(user_id: int, data: dict) -> dict:
     with _connect() as conn:
         cur = conn.execute(
             """
-            INSERT INTO links (user_id, url, min_price, max_price, white_list, black_list, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO links (user_id, url, min_price, max_price, white_list, black_list,
+                               geo, start_date, ignore_reserv, ignore_promotion, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -208,6 +240,10 @@ def create_link(user_id: int, data: dict) -> dict:
                 data.get("max_price"),
                 json.dumps(data.get("white_list") or [], ensure_ascii=False),
                 json.dumps(data.get("black_list") or [], ensure_ascii=False),
+                data.get("geo"),
+                data.get("start_date"),
+                _bool_int(data.get("ignore_reserv"), True),
+                _bool_int(data.get("ignore_promotion"), False),
                 _now_iso(),
             ),
         )
@@ -224,7 +260,8 @@ def update_link(user_id: int, link_id: int, data: dict) -> dict | None:
         conn.execute(
             """
             UPDATE links SET
-                url = ?, min_price = ?, max_price = ?, white_list = ?, black_list = ?, updated_at = ?
+                url = ?, min_price = ?, max_price = ?, white_list = ?, black_list = ?,
+                geo = ?, start_date = ?, ignore_reserv = ?, ignore_promotion = ?, updated_at = ?
             WHERE id = ? AND user_id = ?
             """,
             (
@@ -233,6 +270,10 @@ def update_link(user_id: int, link_id: int, data: dict) -> dict | None:
                 data.get("max_price"),
                 json.dumps(data.get("white_list") or [], ensure_ascii=False),
                 json.dumps(data.get("black_list") or [], ensure_ascii=False),
+                data.get("geo"),
+                data.get("start_date"),
+                _bool_int(data.get("ignore_reserv"), True),
+                _bool_int(data.get("ignore_promotion"), False),
                 _now_iso(),
                 link_id,
                 user_id,
@@ -267,6 +308,10 @@ def get_all_links() -> dict[str, LinkConfig]:
             max_price=row["max_price"],
             white_list=json.loads(row["white_list"] or "[]"),
             black_list=json.loads(row["black_list"] or "[]"),
+            geo=row["geo"],
+            start_date=row["start_date"],
+            ignore_reserv=bool(row["ignore_reserv"]),
+            ignore_promotion=bool(row["ignore_promotion"]),
         )
     return result
 
@@ -302,7 +347,8 @@ def update_link_any(link_id: int, data: dict) -> dict | None:
         conn.execute(
             """
             UPDATE links SET
-                url = ?, min_price = ?, max_price = ?, white_list = ?, black_list = ?, updated_at = ?
+                url = ?, min_price = ?, max_price = ?, white_list = ?, black_list = ?,
+                geo = ?, start_date = ?, ignore_reserv = ?, ignore_promotion = ?, updated_at = ?
             WHERE id = ?
             """,
             (
@@ -311,6 +357,10 @@ def update_link_any(link_id: int, data: dict) -> dict | None:
                 data.get("max_price"),
                 json.dumps(data.get("white_list") or [], ensure_ascii=False),
                 json.dumps(data.get("black_list") or [], ensure_ascii=False),
+                data.get("geo"),
+                data.get("start_date"),
+                _bool_int(data.get("ignore_reserv"), True),
+                _bool_int(data.get("ignore_promotion"), False),
                 _now_iso(),
                 link_id,
             ),

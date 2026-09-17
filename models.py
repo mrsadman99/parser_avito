@@ -154,8 +154,6 @@ class Item(BaseModel):
     seller_rating: float | None = None
     seller_reviews: int | None = None
     isPromotion: bool = False
-    total_views: int | None = None
-    today_views: int | None = None
     phone: str | None = None
     scanned_at: Optional[str] = None
 

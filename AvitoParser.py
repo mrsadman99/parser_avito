@@ -7,7 +7,7 @@ from pathlib import Path
 import flet as ft
 from loguru import logger
 
-from dto import AvitoConfig, MessengersConfig
+from dto import AvitoConfig, MessengersConfig, ServerConfig
 from integrations.notifications.factory import build_notifier
 from lang import *
 from load_config import save_avito_config, load_avito_config
@@ -32,6 +32,7 @@ def main(page: ft.Page):
     is_run = False
     stop_event = threading.Event()
     prev_links = {}
+    prev_server = ServerConfig()
 
     def set_up():
         """Загружает настройки из config.toml и применяет к интерфейсу"""
@@ -43,30 +44,20 @@ def main(page: ft.Page):
             return
 
         prev_links = config.links
+        prev_server = config.server
         url_input.value = "\n".join(config.links.keys())
         tg_chat_id.value = "\n".join(config.messengers.tg_chat_id or [])
         tg_token.value = config.messengers.tg_token or ""
         vk_token.value = config.messengers.vk_token or ""
         vk_user_id.value = "\n".join(config.messengers.vk_user_id or [])
         count_page.value = str(config.count)
-        white_list.value = "\n".join(config.white_list or [])
-        black_list.value = "\n".join(config.black_list or [])
-        max_price.value = str(config.max_price)
-        min_price.value = str(config.min_price)
-        geo.value = config.geo or ""
         proxy.value = config.mobile_proxy.proxy_string or ""
         proxy_change_ip.value = config.mobile_proxy.change_url or ""
         pause_general.value = config.pause_general or 60
-        pause_between_links.value = config.pause_between_links or 5
-        max_age.value = config.max_age or 0
+        min_delay.value = str(config.min_delay)
+        max_delay.value = str(config.max_delay)
         seller_black_list.value = "\n".join(config.seller_black_list or [])
-        ignore_ads_in_reserv.value = config.ignore_reserv
-        ignore_promote_ads.value = config.ignore_promotion
         max_count_of_retry.value = config.max_count_of_retry or 5
-        one_time_start.value = config.one_time_start
-        one_file_for_link.value = config.one_file_for_link
-        parse_views.value = config.parse_views
-        save_xlsx.value = config.save_xlsx
         use_webdriver.value = config.use_webdriver
         use_bypass_api.value = config.use_bypass_api
         cookies_api_key.value = config.cookies_api_key
@@ -77,9 +68,7 @@ def main(page: ft.Page):
         retry_delay.value = config.retry_delay
         timeout.value = config.timeout
         block_threshold.value = config.block_threshold
-        retry_on_failure.value = config.retry_on_failure
-        retry_on_failure_delay.value = str(config.retry_on_failure_delay)
-        parse_full_description.value = config.parse_full_description
+        open_full_ad.value = config.open_full_ad
         use_camoufox.value = config.camoufox.use
         camoufox_os.value = config.camoufox.os or "windows"
         camoufox_headless.value = config.camoufox.headless
@@ -102,9 +91,15 @@ def main(page: ft.Page):
         except (ValueError, TypeError):
             return default
 
+    def to_float_safe(value, default=1.0):
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return default
+
     def save_config():
         """Сохраняет настройки в TOML"""
-        nonlocal prev_links
+        nonlocal prev_links, prev_server
         link_urls = [u.strip() for u in (url_input.value or "").splitlines() if u.strip()]
         links = {}
         for u in link_urls:
@@ -119,6 +114,14 @@ def main(page: ft.Page):
                     cfg["white_list"] = prev.white_list
                 if prev.black_list:
                     cfg["black_list"] = prev.black_list
+                if prev.geo:
+                    cfg["geo"] = prev.geo
+                if prev.start_date:
+                    cfg["start_date"] = prev.start_date
+                if prev.ignore_reserv is False:
+                    cfg["ignore_reserv"] = False
+                if prev.ignore_promotion is True:
+                    cfg["ignore_promotion"] = True
                 links[u] = cfg
             else:
                 links[u] = {}
@@ -153,23 +156,19 @@ def main(page: ft.Page):
                 "proxy_string": proxy.value or "",
                 "change_url": proxy_change_ip.value or "",
             },
+            "server": {
+                "server_port": prev_server.server_port,
+                "web_server_port": prev_server.web_server_port,
+                "admin_password": prev_server.admin_password,
+                "server_host": prev_server.server_host,
+                "cors_origins": list(prev_server.cors_origins or []),
+            },
             "count": to_int_safe(count_page.value, 1),
-            "white_list": white_list.value.splitlines() if white_list.value else [],
-            "black_list": black_list.value.splitlines() if black_list.value else [],
             "seller_black_list": seller_black_list.value.splitlines() if seller_black_list.value else [],
-            "max_price": to_int_safe(max_price.value, 99999999),
-            "min_price": to_int_safe(min_price.value, 0),
-            "geo": geo.value or "",
             "pause_general": to_int_safe(pause_general.value, 3),
-            "pause_between_links": to_int_safe(pause_between_links.value, 1),
-            "max_age": to_int_safe(max_age.value, 0),
+            "min_delay": to_float_safe(min_delay.value, 1.0),
+            "max_delay": to_float_safe(max_delay.value, 3.0),
             "max_count_of_retry": to_int_safe(max_count_of_retry.value, 5),
-            "ignore_reserv": ignore_ads_in_reserv.value,
-            "ignore_promotion": ignore_promote_ads.value,
-            "one_time_start": one_time_start.value,
-            "one_file_for_link": one_file_for_link.value,
-            "parse_views": parse_views.value,
-            "save_xlsx": save_xlsx.value,
             "use_webdriver": use_webdriver.value,
             "use_bypass_api": use_bypass_api.value,
             "cookies_api_key": cookies_api_key.value,
@@ -179,9 +178,7 @@ def main(page: ft.Page):
             "retry_delay": to_int_safe(retry_delay.value, 5),
             "timeout": to_int_safe(timeout.value, 20),
             "block_threshold": to_int_safe(block_threshold.value, 3),
-            "retry_on_failure": retry_on_failure.value,
-            "retry_on_failure_delay": to_int_safe(retry_on_failure_delay.value, 30),
-            "parse_full_description": parse_full_description.value,
+            "open_full_ad": open_full_ad.value,
         }}
 
         save_avito_config(config)
@@ -308,29 +305,7 @@ def main(page: ft.Page):
         stop_btn.visible = True
         is_run = True
         page.update()
-        while is_run and not stop_event.is_set():
-            parser = run_process()
-            if not is_run:
-                return
-
-            # при неудачном проходе не ждём pause_general, повторяем быстрее
-            wait_secs = int(pause_general.value if pause_general.value else 300)
-            if retry_on_failure.value and parser.run_failed:
-                wait_secs = to_int_safe(retry_on_failure_delay.value, 30)
-                logger.info(f"Парсинг не удался — повтор через {wait_secs} сек (без pause_general)")
-
-            logger.info(f"Пауза между повторами: {wait_secs} сек")
-            for _ in range(wait_secs):
-                time.sleep(1)
-                if not is_run:
-                    logger.info("Завершено")
-                    start_btn.text = "Старт"
-                    start_btn.disabled = False
-                    page.update()
-                    return
-            if one_time_start.value:
-                stop_event.set()
-                page.window.close()
+        run_process()
 
     def stop_parser(e):
         nonlocal is_run
@@ -417,12 +392,12 @@ def main(page: ft.Page):
     def run_process():
         config = load_avito_config("config.toml")
         parser = AvitoParse(config, stop_event=stop_event)
-        parsing_thread = threading.Thread(target=parser.parse)
-        parsing_thread.start()
-        parsing_thread.join()
+        parser.parse()
         parser.close()
         start_btn.disabled = False
         start_btn.text = "Старт"
+        start_btn.visible = True
+        stop_btn.visible = False
         page.update()
         return parser
 
@@ -460,36 +435,8 @@ def main(page: ft.Page):
         height=70,
 
     )
-    min_price = ft.TextField(label="Минимальная цена", width=300, expand=True, text_size=12, height=40,
-                             tooltip=MIN_PRICE_HELP)
-    max_price = ft.TextField(label="Максимальная цена", width=300, expand=True, text_size=12, height=40,
-                             tooltip=MAX_PRICE_HELP)
-    white_list = ft.TextField(
-        label="Ключевые слова (через Enter)",
-        multiline=True,
-        min_lines=1,
-        max_lines=50,
-        width=400,
-        expand=True,
-        tooltip=KEYWORD_INPUT_HELP,
-        text_size=12, height=60,
-    )
-    black_list = ft.TextField(
-        label="Черный список ключевых слов (через Enter)",
-        multiline=True,
-        min_lines=1,
-        max_lines=50,
-        width=400,
-        expand=True,
-        tooltip=KEYWORD_BLACK_INPUT_HELP,
-        text_size=12, height=60,
-    )
     count_page = ft.TextField(label="Количество страниц", width=450, expand=True, tooltip=COUNT_PAGE_HELP, text_size=12,
                               height=40, )
-
-
-    max_age = ft.TextField(label="Макс. возраст объявления (в сек.)", width=400, text_size=12, height=40, expand=True,
-                           tooltip=MAX_AGE_HELP)
 
     tg_token = ft.TextField(label="Token telegram", width=400, text_size=12, height=50, expand=True,
                             tooltip=TG_TOKEN_HELP)
@@ -573,8 +520,6 @@ def main(page: ft.Page):
         icon_size=20,
     )
 
-    geo = ft.TextField(label="Ограничение по городу", width=400, expand=True, text_size=12, height=40,
-                       tooltip=GEO_HELP)
     seller_black_list = ft.TextField(
         label="Черный список продавцов (через Enter)",
         multiline=True,
@@ -611,24 +556,16 @@ def main(page: ft.Page):
     report_issue_btn = ft.TextButton("Сообщить о проблеме", on_click=lambda e: page.launch_url(
         "https://github.com/Duff89/parser_avito/issues"), style=ft.ButtonStyle(color=ft.colors.GREY), expand=True,
                                      tooltip=REPORT_ISSUE_BTN_HELP)
-    ignore_ads_in_reserv = ft.Checkbox(label="Игнор-ть резервы", value=True, tooltip=IGNORE_RESERV_HELP)
-    ignore_promote_ads = ft.Checkbox(label="Игнор-ть продвинутые", value=False)
-    one_time_start = ft.Checkbox(label="Выключить после завершения работы", value=False, tooltip=ONE_TIME_START_HELP)
-    one_file_for_link = ft.Checkbox(label="Отдельный файл для каждой ссылки", value=False,
-                                    tooltip=ONE_FILE_FOR_LINK_HELP)
-    parse_views = ft.Checkbox(label="Парсить просмотры", value=False,
-                                    tooltip=PARSE_VIEWS_HELP)
     parse_phone = ft.Checkbox(label="Парсить телефоны", value=False, on_change=check_api_key_exist,
                               tooltip=PARSE_PHONE_HELP)
-
-    save_xlsx = ft.Checkbox(label="Сохранять в Excel", value=True,
-                              tooltip=SAVE_XLSX_HELP)
 
     # Паузы и повторы
     pause_general = ft.TextField(label="Пауза в секундах между повторами", width=400, expand=True, text_size=12,
                                  height=40, tooltip=PAUSE_GENERAL_HELP)
-    pause_between_links = ft.TextField(label="Пауза в секундах между каждой ссылкой", width=400, text_size=12,
-                                       height=40, expand=True, tooltip=PAUSE_BETWEEN_LINKS_HELP)
+    min_delay = ft.TextField(label="Мин. задержка между запросами к Avito", width=300, text_size=12,
+                             height=40, expand=True, tooltip=MIN_DELAY_HELP)
+    max_delay = ft.TextField(label="Макс. задержка между запросами к Avito", width=300, text_size=12,
+                             height=40, expand=True, tooltip=MAX_DELAY_HELP)
     max_count_of_retry = ft.TextField(label="Макс. кол-во повторов", width=300, text_size=12, height=40, expand=True,
                                       tooltip=MAX_COUNT_OF_RETRY_HELP)
     retry_delay = ft.TextField(label="Пауза между неудачными повторами", width=300, text_size=12, height=40, expand=True,
@@ -638,16 +575,10 @@ def main(page: ft.Page):
     block_threshold = ft.TextField(label="Попыток перед разблокировкой", width=300, text_size=12, height=40, expand=True,
                                       tooltip=BLOCK_THRESHOLD_HELP)
 
-    retry_on_failure = ft.Checkbox("Быстрый повтор при неудачном проходе", value=True,
-                                   tooltip="Если парсинг завершился ошибками — не ждать pause_general, а повторить раньше")
-    retry_on_failure_delay = ft.TextField(label="Пауза перед быстрым повтором (сек)", value="30", width=250,
-                                          text_size=12, height=40,
-                                          tooltip="Сколько ждать перед повторным запуском, если проход не удался")
-
     # Полное описание объявлений
-    parse_full_description = ft.Checkbox("Открывать страницы и брать ПОЛНОЕ описание", value=False,
-                                         tooltip="Дополнительно открывать каждое объявление для полного описания "
-                                                 "(в выдаче API описание обрезано ~250 символов)")
+    open_full_ad = ft.Checkbox("Открывать страницы и брать ПОЛНОЕ описание", value=False,
+                               tooltip="Дополнительно открывать каждое объявление для полного описания "
+                                       "(в выдаче API описание обрезано ~250 символов)")
 
     # Camoufox (реальный браузер для запросов к поиску)
     use_camoufox = ft.Checkbox("Поиск через Camoufox (антидетект-браузер)", value=False,
@@ -683,7 +614,6 @@ def main(page: ft.Page):
                 "🔴 Основные параметры",
                 [
                     url_input,
-                    ft.Row([min_price, max_price]),
                     count_page,
                 ],
                 expanded=True
@@ -692,10 +622,7 @@ def main(page: ft.Page):
             panel(
                 "🟡 Фильтрация",
                 [
-                    ft.Row([white_list, black_list]),
                     seller_black_list,
-                    ft.Row([geo,max_age]),
-                    ft.Row([ignore_ads_in_reserv, ignore_promote_ads]),
                 ]
             ),
 
@@ -828,14 +755,10 @@ def main(page: ft.Page):
             panel(
                 "⚙️ Поведение парсера",
                 [
-                    ft.Row([pause_general, pause_between_links, block_threshold]),
+                    ft.Row([pause_general, block_threshold]),
+                    ft.Row([min_delay, max_delay]),
                     ft.Row([max_count_of_retry, retry_delay, timeout]),
-                    ft.Row([one_time_start, one_file_for_link]),
-                    ft.Row([retry_on_failure, retry_on_failure_delay]),
-                    ft.Row([parse_views,
-                            #parse_phone,
-                            save_xlsx]),
-                    parse_full_description,
+                    open_full_ad,
                 ]
             ),
 
