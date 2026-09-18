@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""Запуск tinyproxy на Android-устройстве через adb → Termux (+ стрим лога в tmux).
+"""Запуск tinyproxy на Android через adb → Termux (run-as).
 
-Поток: adb (по device_serial) → Termux (am broadcast com.termux.RUN_COMMAND) → tinyproxy.
+Поток: adb (по device_serial) → run-as com.termux → Termux bash → tinyproxy -d.
+Окружение Termux выставляем вручную (PREFIX/HOME/PATH/LD_LIBRARY_PATH/TMPDIR),
+конфиг — абсолютным путём. Вывод tinyproxy течёт обратно через adb (без трюка с логом).
 
-tinyproxy всегда запускается как `tinyproxy -d` (foreground, без демонизации — в Termux
-это надёжнее) и пишет лог в общий файл на устройстве (по умолчанию /sdcard/tinyproxy.log),
-который доступен и Termux, и adb. Режимы:
-
-  * detached_mode = true  — Termux background (RUN_COMMAND_BACKGROUND=true), без tmux;
-  * detached_mode = false — RUN_COMMAND_BACKGROUND=false, tmux-сессия "proxy",
-                            которая стримит лог через `adb shell tail -f`.
+  * detached_mode = true  — tinyproxy в фоне (nohup … &), без tmux, лог в файл;
+  * detached_mode = false — tinyproxy в foreground, tmux-сессия "proxy",
+                            вывод (лог tinyproxy) течёт прямо в tmux.
 
 Запуск:
     python scripts/start_adb_proxy.py
@@ -19,11 +17,9 @@ tinyproxy всегда запускается как `tinyproxy -d` (foreground,
     python scripts/start_adb_proxy.py --no-attach
 """
 import argparse
-import base64
-import os
+import shlex
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -31,7 +27,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from load_config import load_avito_config
 
 SESSION_NAME = "proxy"
-TINYPROXY_CONF = "$PREFIX/etc/tinyproxy/tinyproxy.conf"
+TERMUX_PREFIX = "/data/data/com.termux/files/usr"
+TERMUX_HOME = "/data/data/com.termux/files/home"
+TERMUX_BASH = f"{TERMUX_PREFIX}/bin/bash"
+TINYPROXY_CONF = f"{TERMUX_PREFIX}/etc/tinyproxy/tinyproxy.conf"
 DEFAULT_DEVICE_LOG = "/sdcard/tinyproxy.log"
 
 
@@ -51,52 +50,48 @@ def load_settings(config_path: str = "config.toml"):
     return serial, detached
 
 
-def build_termux_script(device_log: str) -> str:
-    """Скрипт, который выполнится в Termux: запускает tinyproxy -d и пишет лог в общий файл."""
-    return f"""
-LOG="{device_log}"
-if pgrep -x tinyproxy > /dev/null; then
-    echo "tinyproxy уже запущен."
-    exit 0
-fi
-echo "Запускаю tinyproxy -d, лог: $LOG"
-tinyproxy -d -c {TINYPROXY_CONF} >> "$LOG" 2>&1
-echo "tinyproxy остановлен."
-"""
+def build_device_script(device_log: str, background: bool) -> str:
+    """Скрипт для Termux (одна строка): окружение + запуск tinyproxy -d."""
+    parts = [
+        f"export PREFIX={TERMUX_PREFIX}",
+        f"export HOME={TERMUX_HOME}",
+        "export PATH=$PREFIX/bin:$PATH",
+        "export LD_LIBRARY_PATH=$PREFIX/lib",
+        "export TMPDIR=$PREFIX/tmp",
+        "mkdir -p $TMPDIR",
+        'if pgrep -x tinyproxy > /dev/null; then echo "tinyproxy уже запущен."; exit 0; fi',
+    ]
+    if background:
+        parts.append(
+            f'nohup tinyproxy -d -c {TINYPROXY_CONF} >> "{device_log}" 2>&1 & '
+            f'echo "tinyproxy запущен (pid $!)."'
+        )
+    else:
+        parts.append(f"exec tinyproxy -d -c {TINYPROXY_CONF}")
+    return "; ".join(parts)
 
 
-def build_am_cmd(device_log: str, background: bool) -> str:
-    """Команда am broadcast для Termux (RUN_COMMAND)."""
-    termux_script = build_termux_script(device_log)
-    b64_script = base64.b64encode(termux_script.encode()).decode()
-    inner_cmd = f"echo {b64_script} | base64 -d | bash"
-    bg = "true" if background else "false"
-    return (
-        f"am broadcast --user 0 "
-        f"-a com.termux.RUN_COMMAND "
-        f"--es com.termux.RUN_COMMAND_PATH /data/data/com.termux/files/usr/bin/bash "
-        f"--esa com.termux.RUN_COMMAND_ARGUMENTS \"-c,{inner_cmd}\" "
-        f"--es com.termux.RUN_COMMAND_WORKDIR /data/data/com.termux/files/home "
-        f"--ez com.termux.RUN_COMMAND_BACKGROUND {bg}"
-    )
-
-
-def _adb_prefix(serial: str) -> str:
-    return f"adb -s '{serial}'" if serial else "adb"
+def build_device_command(device_log: str, background: bool) -> str:
+    """Команда на устройстве: run-as com.termux <bash> -c '<script>'."""
+    script = build_device_script(device_log, background)
+    return f"run-as com.termux {TERMUX_BASH} -c '{script}'"
 
 
 def _adb_base(serial: str) -> list:
     return ["adb", "-s", serial] if serial else ["adb"]
 
 
-def run_detached(serial: str, device_log: str) -> int:
-    """detached: adb → Termux broadcast в фоне (RUN_COMMAND_BACKGROUND=true), без tmux."""
-    am_cmd = build_am_cmd(device_log, background=True)
-    adb_cmd = _adb_base(serial) + ["shell", am_cmd]
+def _adb_prefix(serial: str) -> str:
+    return f"adb -s '{serial}'" if serial else "adb"
 
-    print("detached_mode: запускаю tinyproxy -d в фоне Termux (без tmux)...")
+
+def run_detached(serial: str, device_log: str) -> int:
+    """detached: run-as → Termux bash → nohup tinyproxy -d & (без tmux)."""
+    cmd = _adb_base(serial) + ["shell", build_device_command(device_log, background=True)]
+
+    print("detached_mode: запускаю tinyproxy -d в Termux через run-as (фон)...")
     try:
-        result = subprocess.run(adb_cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
     except FileNotFoundError:
         print("❌ adb не найден в PATH", file=sys.stderr)
         return 1
@@ -106,7 +101,7 @@ def run_detached(serial: str, device_log: str) -> int:
         print(out)
     if result.returncode == 0:
         print("tinyproxy запущен в Termux (detached, background).")
-        print(f"Лог: {_adb_prefix(serial)} shell 'tail -n 50 -f {device_log}'")
+        print(f"Лог: {_adb_prefix(serial)} shell \"tail -n 50 -f {device_log}\"")
         return 0
     print(f"❌ Ошибка adb (код {result.returncode}): {(result.stderr or '').strip()}",
           file=sys.stderr)
@@ -114,21 +109,9 @@ def run_detached(serial: str, device_log: str) -> int:
 
 
 def run_attached(serial: str, device_log: str, attach: bool) -> int:
-    """attached: broadcast в foreground + tmux-сессия, стримящая лог через `adb shell tail -f`."""
-    am_cmd = build_am_cmd(device_log, background=False)
-    adb = _adb_prefix(serial)
-
-    # Временный shell-скрипт для tmux: запускаем tinyproxy в Termux и стримим лог.
-    script_content = f"""#!/bin/bash
-echo "Запуск tinyproxy -d в Termux через adb..."
-{adb} shell '{am_cmd}'
-echo "Стримлю лог {device_log} (Ctrl+C / detach — выйти из стрима)..."
-{adb} shell 'until [ -f {device_log} ]; do sleep 1; done; tail -n 50 -f {device_log}'
-"""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
-        f.write(script_content)
-        script_path = f.name
-    os.chmod(script_path, 0o755)
+    """attached: run-as → Termux bash → tinyproxy -d в foreground (вывод в tmux)."""
+    cmd = _adb_base(serial) + ["shell", build_device_command(device_log, background=False)]
+    shell_cmd = " ".join(shlex.quote(c) for c in cmd)
 
     try:
         exists = subprocess.run(
@@ -140,9 +123,9 @@ echo "Стримлю лог {device_log} (Ctrl+C / detach — выйти из с
         return 1
 
     if not exists:
-        print(f"Создаю tmux-сессию '{SESSION_NAME}' (стрим лога)...")
+        print(f"Создаю tmux-сессию '{SESSION_NAME}' (вывод tinyproxy)...")
         result = subprocess.run(
-            ["tmux", "new-session", "-d", "-s", SESSION_NAME, f"bash {script_path}"],
+            ["tmux", "new-session", "-d", "-s", SESSION_NAME, shell_cmd],
             capture_output=True, text=True,
         )
         if result.returncode != 0:
@@ -161,7 +144,7 @@ echo "Стримлю лог {device_log} (Ctrl+C / detach — выйти из с
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Запуск tinyproxy на Android через adb → Termux (+ стрим лога в tmux)"
+        description="Запуск tinyproxy на Android через adb → Termux (run-as)"
     )
     parser.add_argument("--config", default="config.toml",
                         help="Путь к config.toml (device_serial и detached_mode берутся отсюда)")
