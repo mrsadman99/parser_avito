@@ -34,6 +34,20 @@ def build_frontend() -> None:
     subprocess.run(["npm", "run", "build"], cwd=WEB_DIR, check=True)
 
 
+def start_adb_proxy_if_needed(config) -> None:
+    """Перед стартом парсера поднимает прокси на телефоне, если avito.adb_proxy.use = true."""
+    if not getattr(config.adb_proxy, "use", False):
+        return
+    script = Path(__file__).resolve().parent / "scripts" / "start_adb_proxy.py"
+    if not script.exists():
+        print(f"ADB-прокси включён (adb_proxy.use = true), но не найден {script}")
+        return
+    print("Запускаю ADB-прокси (scripts/start_adb_proxy.py)...")
+    result = subprocess.run([sys.executable, str(script)], check=False)
+    if result.returncode != 0:
+        print(f"ADB-прокси не запустился (код {result.returncode}), продолжаю без него")
+
+
 def main():
     args = argparse.ArgumentParser(description="Запуск веб-приложения, API и парсера")
     args.add_argument("--dev", action="store_true", help="Vite dev-сервер вместо собранного фронта")
@@ -70,6 +84,8 @@ def main():
     else:
         print(f"Web:       http://localhost:{config.server.server_port}  (собранный фронт)")
     print("Парсер:    запущен (Ctrl+C — остановить всё)")
+
+    start_adb_proxy_if_needed(config)
 
     try:
         avito = AvitoParse(config, links_provider=links_provider)

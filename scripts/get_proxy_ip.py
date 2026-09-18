@@ -5,10 +5,13 @@
 Если ссылок смены IP несколько — перебирает их, пока одна не сработает.
 
 Запуск:
-    python get_proxy_ip.py            # сменить IP и показать новый
-    python get_proxy_ip.py --check    # только показать текущий IP (без смены)
+    python scripts/get_proxy_ip.py            # сменить IP и показать новый
+    python scripts/get_proxy_ip.py --check    # только показать текущий IP (без смены)
 """
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import requests
 

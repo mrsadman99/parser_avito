@@ -9,14 +9,17 @@
 MarkdownV2 с экранированием (как в парсере).
 
 Примеры:
-    python send_tg.py "Привет!"
-    python send_tg.py --text "Смотри какое фото" --photo /path/to/photo.jpg
-    python send_tg.py --text "Смотри" --photo https://example.com/photo.jpg --markdown
-    python send_tg.py --text "Только в один чат" --chat-id 123456789
+    python scripts/send_tg.py "Привет!"
+    python scripts/send_tg.py --text "Смотри какое фото" --photo /path/to/photo.jpg
+    python scripts/send_tg.py --text "Смотри" --photo https://example.com/photo.jpg --markdown
+    python scripts/send_tg.py --text "Только в один чат" --chat-id 123456789
 """
 
 import argparse
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import requests
 

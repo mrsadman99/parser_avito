@@ -3,10 +3,13 @@
 
 Берёт tg_token и tg_chat_id из config.toml (а также proxy_notifier, если задан).
 Запуск:
-    python send_tg_test.py "Текст сообщения"     # свой текст
-    python send_tg_test.py                        # по умолчанию «Тест от Avito Parser»
+    python scripts/send_tg_test.py "Текст сообщения"     # свой текст
+    python scripts/send_tg_test.py                        # по умолчанию «Тест от Avito Parser»
 """
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import requests
 

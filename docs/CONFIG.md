@@ -156,7 +156,7 @@ URL для смены IP (только для мобильных прокси), 
 
 ### `use_webdriver` — булево
 
-Использовать WebDriver/Playwright (для получения собственных cookies через `get_cookies.py`).
+Использовать WebDriver/Playwright (для получения собственных cookies через `scripts/get_cookies.py`).
 
 ### `use_bypass_api` — булево
 
@@ -176,7 +176,7 @@ cookies_api_key = ""
 
 ### `use_own_cookies` — булево
 
-`true` — использовать свои cookies из `storage/own_cookies.json` (получаются скриптом `get_cookies.py`).
+`true` — использовать свои cookies из `storage/own_cookies.json` (получаются скриптом `scripts/get_cookies.py`).
 ⚠️ **Взаимоисключает** `use_bypass_api` (фабрика выберет один провайдер).
 
 ### `purchase_cooldown` — целое число (секунды)

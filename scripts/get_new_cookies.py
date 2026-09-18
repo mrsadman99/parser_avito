@@ -10,18 +10,21 @@ proxy резолвится так же — для use_adb_proxy это adb-пр�
 Сам запрос отправляется через config.messengers.proxy_notifier, если он задан.
 
 Примеры:
-    python3 get_new_cookies.py
-    python3 get_new_cookies.py --config config.toml
-    python3 get_new_cookies.py --proxy "login:pass@127.0.0.1:5555"
-    python3 get_new_cookies.py --notifier "login:pass@notifier:3128"
-    python3 get_new_cookies.py --api-key KEY --no-mobile
-    python3 get_new_cookies.py --output storage/cookies_debug.json
+    python3 scripts/get_new_cookies.py
+    python3 scripts/get_new_cookies.py --config config.toml
+    python3 scripts/get_new_cookies.py --proxy "login:pass@127.0.0.1:5555"
+    python3 scripts/get_new_cookies.py --notifier "login:pass@notifier:3128"
+    python3 scripts/get_new_cookies.py --api-key KEY --no-mobile
+    python3 scripts/get_new_cookies.py --output storage/cookies_debug.json
 """
 
 import argparse
 import json
 import os
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import requests
 
@@ -66,7 +69,7 @@ def get_new_cookies(
 
 
 def _build_request_proxies(notifier: str | None) -> dict | None:
-    """Прокси для самого запроса к SPFA (по образцу send_tg_test.py)."""
+    """Прокси для самого запроса к SPFA (по образцу scripts/send_tg_test.py)."""
     if not notifier:
         return None
     if "://" in notifier:

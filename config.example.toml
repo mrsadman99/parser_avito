@@ -21,7 +21,7 @@ seller_black_list = []               # чёрный список продавц�
 use_webdriver = true                 # использовать браузер (Playwright)
 use_bypass_api = false               # true — использовать SPFA (spfa.pro)
 cookies_api_key = ""                 # API-ключ SPFA
-use_own_cookies = false              # true — свои cookies (get_cookies_cli.py)
+use_own_cookies = false              # true — свои cookies (scripts/get_cookies_cli.py)
 purchase_cooldown = 600              # пауза между покупками cookies SPFA, сек
 parse_phone = false                  # парсить телефоны (функция пока не активна)
 

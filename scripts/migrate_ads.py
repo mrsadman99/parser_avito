@@ -8,16 +8,19 @@
   - заполняет title первой строкой описания (если пуст).
 
 Режимы:
-    python migrate_ads.py                    # показать, сколько объявлений без ссылки
-    python migrate_ads.py --url "..."        # привязать ВСЕ старые объявления к одной ссылке
-    python migrate_ads.py --auto             # сопоставить по ключевым словам ссылки (q=...)
-    python migrate_ads.py --dry-run          # только показать, не изменяя
+    python scripts/migrate_ads.py                    # показать, сколько объявлений без ссылки
+    python scripts/migrate_ads.py --url "..."        # привязать ВСЕ старые объявления к одной ссылке
+    python scripts/migrate_ads.py --auto             # сопоставить по ключевым словам ссылки (q=...)
+    python scripts/migrate_ads.py --dry-run          # только показать, не изменяя
 """
 
 import argparse
 import sqlite3
 import sys
+from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from db_service import SQLiteDBHandler
 

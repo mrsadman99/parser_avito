@@ -2,7 +2,7 @@
 Получение cookies для парсера ЧЕРЕЗ IP мобильного прокси.
 
 Запуск:
-    python get_cookies_cli.py
+    python scripts/get_cookies_cli.py
 
 Что делает:
     1. Читает proxy_string / proxy_change_url из config.toml
@@ -19,7 +19,10 @@
 import asyncio
 import json
 import random
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from loguru import logger
 
