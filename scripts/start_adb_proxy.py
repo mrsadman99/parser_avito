@@ -1,9 +1,24 @@
 #!/usr/bin/env python3
+"""Запуск tinyproxy на Android-устройстве через adb (Termux).
+
+Серийный номер устройства берётся из config.toml: [avito.adb_proxy].device_serial.
+Если он не задан — adb вызывается без -s (первое/единственное устройство).
+
+Запуск:
+    python scripts/start_adb_proxy.py
+    python scripts/start_adb_proxy.py --serial emulator-5554
+"""
+import argparse
 import base64
 import os
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from load_config import load_avito_config
 
 SESSION_NAME = "proxy"
 TINYPROXY_CONF = "$PREFIX/etc/tinyproxy/tinyproxy.conf"
@@ -21,7 +36,37 @@ echo "tinyproxy запущен."
 """
 
 
-def main():
+def device_serial(config_path: str = "config.toml") -> str:
+    """Серийный номер устройства из config.toml ([avito.adb_proxy].device_serial)."""
+    try:
+        config = load_avito_config(config_path)
+    except Exception as err:
+        print(
+            f"⚠️ Не удалось загрузить {config_path}: {err}. Использую adb без -s",
+            file=sys.stderr,
+        )
+        return ""
+    return (config.adb_proxy.device_serial or "").strip()
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Запуск tinyproxy на Android через adb (Termux)"
+    )
+    parser.add_argument("--config", default="config.toml",
+                        help="Путь к config.toml (откуда берётся device_serial)")
+    parser.add_argument("--serial", default=None,
+                        help="Серийный номер устройства (переопределяет config.toml)")
+    args = parser.parse_args(argv)
+
+    serial = args.serial if args.serial is not None else device_serial(args.config)
+    if serial:
+        print(f"Устройство (adb -s): {serial}")
+        adb_prefix = f"adb -s '{serial}'"
+    else:
+        print("device_serial не задан — использую adb без -s")
+        adb_prefix = "adb"
+
     # Кодируем скрипт Termux в base64, чтобы избежать проблем с кавычками
     b64_script = base64.b64encode(TERMUX_SCRIPT.encode()).decode()
     inner_cmd = f"echo {b64_script} | base64 -d | bash"
@@ -41,7 +86,7 @@ def main():
     # чтобы tmux-сессия не закрылась и можно было посмотреть вывод.
     script_content = f"""#!/bin/bash
 echo "Запуск tinyproxy в Termux через adb..."
-adb shell '{am_cmd}'
+{adb_prefix} shell '{am_cmd}'
 echo "Команда отправлена. Сессия остаётся активной. Для выхода закройте tmux (Ctrl+C или detach)."
 sleep infinity
 """
