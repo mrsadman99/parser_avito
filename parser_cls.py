@@ -101,15 +101,19 @@ class AvitoParse:
         log_config(config=self.config, version=VERSION)
 
     def _current_links(self):
-        """Актуальный набор ссылок: из внешнего провайдера (веб), иначе из конфига."""
+        """Актуальный набор ссылок: из конфига + из внешнего провайдера (веб).
+
+        При совпадении URL приоритет у провайдера (ссылки, управляемые через веб).
+        """
+        links = dict(self.config.links or {})
         if self.links_provider is not None:
             try:
-                links = self.links_provider()
-                if links:
-                    return links
+                provider_links = self.links_provider()
+                if provider_links:
+                    links.update(provider_links)
             except Exception as err:
                 logger.warning(f"Не удалось получить ссылки из провайдера: {err}")
-        return self.config.links
+        return links
 
     def get_proxy_obj(self) -> Proxy | None:
         if all([self.config.mobile_proxy.proxy_string, self.config.mobile_proxy.change_url]):
