@@ -4,14 +4,14 @@
 Что останавливается:
   * фоновые (detached_mode) процессы api / web / parser — по pid-файлам logs/*.pid
     (убивается вся группа процессов);
-  * tmux-сессии (обычный режим): parser, api, web, proxy;
-  * tinyproxy на Android-устройстве — best-effort через adb (run-as → pkill), если
-    включён [avito.adb_proxy].use.
+  * tmux-сессии (обычный режим): parser, api, web;
+  * свой мобильный прокси на телефоне (tmux-сессия + tinyproxy) — по SSH, если
+    включён [avito.own_mobile_proxy].use.
 
 Запуск:
     python scripts/stop.py                 # остановить всё
     python scripts/stop.py --dry-run       # только показать, что будет остановлено
-    python scripts/stop.py --keep-proxy    # не трогать tinyproxy на телефоне
+    python scripts/stop.py --keep-proxy    # не трогать прокси на телефоне
 """
 import argparse
 import os
@@ -30,7 +30,7 @@ LOGS_DIR = ROOT / "logs"
 
 # порядок важен: сначала парсер, потом api/web
 PID_NAMES = ["parser", "api", "web"]
-TMUX_SESSIONS = ["parser", "api", "web", "proxy"]
+TMUX_SESSIONS = ["parser", "api", "web"]
 
 # маркеры в командной строке процесса (чтобы не убить чужой pid при переиспользовании)
 PID_MARKERS = {
@@ -127,41 +127,24 @@ def stop_tmux(name: str, dry_run: bool) -> None:
     subprocess.run(["tmux", "kill-session", "-t", name], check=False)
 
 
-def stop_device_proxy(dry_run: bool) -> None:
-    """Best-effort остановка tinyproxy на Android-устройстве."""
+def stop_own_proxy(dry_run: bool) -> None:
+    """Остановка своего мобильного прокси (tinyproxy на телефоне) по SSH."""
     try:
         config = load_avito_config("config.toml")
     except Exception as err:
         print(f"  ⚠️ Не удалось прочитать config.toml: {err}")
         return
-    if not getattr(config.adb_proxy, "use", False):
+    if not getattr(getattr(config, "own_mobile_proxy", None), "use", False):
         return
-
-    serial = (config.adb_proxy.device_serial or "").strip()
-    script = (
-        "export PREFIX=/data/data/com.termux/files/usr; "
-        "export HOME=/data/data/com.termux/files/home; "
-        "export PATH=$PREFIX/bin:$PATH; "
-        "pkill -x tinyproxy && echo 'tinyproxy остановлен' || echo 'tinyproxy не запущен'"
-    )
-    device_cmd = f"run-as com.termux /data/data/com.termux/files/usr/bin/bash -c '{script}'"
-    adb = ["adb"] + (["-s", serial] if serial else []) + ["shell", device_cmd]
 
     if dry_run:
-        print("  device: tinyproxy будет остановлен на телефоне")
+        print("  device: tinyproxy на телефоне будет остановлен (SSH)")
         return
 
-    print("  device: останавливаю tinyproxy на телефоне...")
-    try:
-        result = subprocess.run(adb, capture_output=True, text=True)
-    except FileNotFoundError:
-        print("  ⚠️ adb не найден — пропускаю устройство")
-        return
-    out = (result.stdout or "").strip()
-    if out:
-        print(f"    {out}")
-    if result.returncode != 0:
-        print(f"    ⚠️ не удалось: {(result.stderr or '').strip()}")
+    from utils.own_mobile_proxy import stop_proxy
+
+    print("  device: останавливаю tinyproxy на телефоне (SSH)...")
+    stop_proxy(config)
 
 
 def main(argv=None):
@@ -171,7 +154,7 @@ def main(argv=None):
     parser.add_argument("--dry-run", action="store_true",
                         help="Только показать, что будет остановлено")
     parser.add_argument("--keep-proxy", action="store_true",
-                        help="Не останавливать tinyproxy на устройстве")
+                        help="Не останавливать прокси на телефоне")
     args = parser.parse_args(argv)
 
     print("Фоновые процессы (logs/*.pid):")
@@ -183,8 +166,8 @@ def main(argv=None):
         stop_tmux(name, args.dry_run)
 
     if not args.keep_proxy:
-        print("Прокси на устройстве:")
-        stop_device_proxy(args.dry_run)
+        print("Свой мобильный прокси на телефоне:")
+        stop_own_proxy(args.dry_run)
 
     print("Dry-run: ничего не изменено." if args.dry_run else "Готово.")
     return 0

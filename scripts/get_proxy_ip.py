@@ -74,18 +74,18 @@ def main():
         return
 
     change_urls = []
-    if cfg.mobile_proxy.change_url:
-        change_urls.append(cfg.mobile_proxy.change_url)
-    for cu in (cfg.mobile_proxy.change_urls or []):
+    if cfg.external_mobile_proxy.change_url:
+        change_urls.append(cfg.external_mobile_proxy.change_url)
+    for cu in (cfg.external_mobile_proxy.change_urls or []):
         if cu and cu not in change_urls:
             change_urls.append(cu)
 
-    if not (cfg.mobile_proxy.proxy_string and change_urls):
-        print("❌ В config.toml не настроен мобильный прокси (нужны proxy_string и proxy_change_url)")
+    if not (cfg.external_mobile_proxy.proxy_string and change_urls):
+        print("❌ В config.toml не настроен внешний мобильный прокси (нужны proxy_string и proxy_change_url)")
         return
 
-    host = cfg.mobile_proxy.proxy_string.split("@")[-1] if "@" in cfg.mobile_proxy.proxy_string else cfg.mobile_proxy.proxy_string
-    print(f"🛰 Мобильный прокси: {host}")
+    host = cfg.external_mobile_proxy.proxy_string.split("@")[-1] if "@" in cfg.external_mobile_proxy.proxy_string else cfg.external_mobile_proxy.proxy_string
+    print(f"🛰 Внешний мобильный прокси: {host}")
 
     if not only_check:
         print(f"🔄 Меняю IP через changeip (ссылок: {len(change_urls)})...")
@@ -96,7 +96,7 @@ def main():
             print(f"❌ Ошибка смены IP: {err}")
 
     print("🌐 Проверяю фактический IP через прокси...")
-    ip = current_ip(cfg.mobile_proxy.proxy_string)
+    ip = current_ip(cfg.external_mobile_proxy.proxy_string)
     if ip:
         print(f"🌐 IP (через прокси): {ip}")
     else:

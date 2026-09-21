@@ -22,10 +22,10 @@ class ExternalApiCookiesProvider(CookiesProvider):
     ):
         self.api_key = config.cookies_api_key
         self.proxy_handler = proxy
-        adb_proxy_string = (
+        own_proxy_string = (
             proxy.get_spfa_proxy_string() if proxy is not None else None
         )
-        self.proxy = adb_proxy_string or config.mobile_proxy.proxy_string
+        self.proxy = own_proxy_string or config.external_mobile_proxy.proxy_string
         # сами запросы к SPFA шлём через proxy_notifier (payload не меняем)
         self.request_proxies = build_proxies_dict(config.messengers.proxy_notifier)
         self.purchase_cooldown = config.purchase_cooldown

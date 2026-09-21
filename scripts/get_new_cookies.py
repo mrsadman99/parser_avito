@@ -5,8 +5,8 @@
 и печатает полученные данные. Удобно для отладки без запуска всего парсера.
 
 Значения api_key и proxy по умолчанию берутся из config.toml (как в парсере):
-proxy резолвится так же — для use_adb_proxy это adb-прокси
-(login:pass@127.0.0.1:{adb_local_port}), иначе proxy_string.
+proxy резолвится так же — для своего мобильного прокси это адрес tinyproxy на
+телефоне ({ssh.host}:{port}), иначе external_mobile_proxy.proxy_string.
 Сам запрос отправляется через config.messengers.proxy_notifier, если он задан.
 
 Примеры:
@@ -89,8 +89,9 @@ def _mask_proxy(proxy: str) -> str:
 def load_config_defaults(config_path: str):
     """Читает config.toml и возвращает {api_key, proxy, mobile} как в парсере.
 
-    proxy резолвится так же, как ExternalApiCookiesProvider: при use_adb_proxy
-    берётся adb-прокси (login:pass@127.0.0.1:{adb_local_port}), иначе proxy_string.
+    proxy резолвится так же, как ExternalApiCookiesProvider: при своём мобильном
+    прокси берётся адрес tinyproxy на телефоне ({login}:{pass}@{ssh.host}:{port}),
+    иначе external_mobile_proxy.proxy_string.
     """
     try:
         from load_config import load_avito_config
@@ -105,11 +106,11 @@ def load_config_defaults(config_path: str):
         print(f"⚠️ Не удалось загрузить {config_path}: {err}", file=sys.stderr)
         return {}
 
-    from utils.adb_proxy import ensure_adb_proxy
-    ensure_adb_proxy(config, config_path=config_path)
+    from utils.own_mobile_proxy import ensure_own_mobile_proxy
+    ensure_own_mobile_proxy(config, config_path=config_path)
     proxy_obj = build_proxy(config)
-    adb_proxy = proxy_obj.get_spfa_proxy_string() if proxy_obj is not None else None
-    proxy = adb_proxy or (config.mobile_proxy.proxy_string or "")
+    own_proxy = proxy_obj.get_spfa_proxy_string() if proxy_obj is not None else None
+    proxy = own_proxy or (config.external_mobile_proxy.proxy_string or "")
 
     return {
         "api_key": config.cookies_api_key or "",
@@ -161,7 +162,7 @@ def main(argv=None):
     parser.add_argument("--api-key", default=None,
                         help="API-ключ spfa.pro (по умолчанию: config.toml -> SPFA_API_KEY)")
     parser.add_argument("--proxy", default=None,
-                        help="Прокси для привязки cookies (по умолчанию из config.toml: adb-прокси или proxy_string)")
+                        help="Прокси для привязки cookies (по умолчанию из config.toml: свой мобильный или external_mobile_proxy.proxy_string)")
     parser.add_argument("--notifier", default=None,
                         help="Прокси, через который отправляется сам запрос (по умолчанию config.messengers.proxy_notifier)")
     parser.add_argument("--mobile", default=True, action=argparse.BooleanOptionalAction,

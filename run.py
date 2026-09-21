@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Запуск веб-приложения, REST API, ADB-прокси и парсера одной командой.
+"""Запуск веб-приложения, REST API, своего мобильного прокси и парсера одной командой.
 
 run.py запускает всё в фоне и сразу завершается — процессы продолжают работать
 после выхода из run.py (и после отключения от SSH).
 
 Режим берётся из config.toml, ключ [avito].detached_mode:
-  * false (по умолчанию) — всё в tmux-сессиях: api, web (--dev), proxy, parser;
+  * false (по умолчанию) — всё в tmux-сессиях: api, web (--dev), parser;
   * true — независимые фоновые процессы, логи в logs/api.log и logs/parser.log.
+
+Свой мобильный прокси (tinyproxy на телефоне, [avito.own_mobile_proxy]) запускается
+по SSH в tmux-сессии на самом телефоне и не зависит от detached_mode.
 
     python run.py          # production: сборка фронта + API + прокси + парсер
     python run.py --dev    # dev: Vite dev-сервер вместо собранного фронта
@@ -24,7 +27,7 @@ import sys
 from pathlib import Path
 
 from load_config import load_avito_config
-from utils.adb_proxy import ensure_adb_proxy
+from utils.own_mobile_proxy import ensure_own_mobile_proxy
 
 ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "web-server"
@@ -147,7 +150,7 @@ def main():
         detached=detached, cwd=ROOT,
     )
 
-    ensure_adb_proxy(config)
+    ensure_own_mobile_proxy(config)
 
     launch(
         "parser",
@@ -164,7 +167,7 @@ def main():
     if detached:
         print("Логи:      logs/api.log, logs/parser.log; pid: logs/*.pid")
     else:
-        print("tmux:      tmux ls;  tmux attach -t api|web|proxy|parser")
+        print("tmux:      tmux ls;  tmux attach -t api|web|parser")
     print("run.py завершает работу — процессы продолжают работать в фоне.")
     print("Остановить всё: python scripts/stop.py")
 

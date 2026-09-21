@@ -41,21 +41,29 @@ class CamoufoxConfig:
 
 
 @dataclass
-class AdbProxyConfig:
-    """ADB-прокси: tinyproxy/microsocks на телефоне, проброс через adb forward."""
-    use: bool = False
-    device_serial: str = ""
-    local_port: int = 1080
-    remote_port: int = 1080
-    rotate_ip: bool = True
-    login: str = ""
+class SshConfig:
+    """SSH-подключение к телефону (Termux sshd) для запуска своего мобильного прокси."""
+    host: str = ""               # IP-адрес телефона
+    port: int = 8022             # порт SSH (у Termux sshd по умолчанию 8022)
+    user: str = ""               # пользователь SSH (в Termux — имя из `whoami`)
     password: str = ""
-    server: str = ""             # host:port для SPFA body proxy (пусто = 127.0.0.1:{local_port})
 
 
 @dataclass
-class MobileProxyConfig:
-    """Мобильный прокси (используется вместо adb)."""
+class OwnMobileProxyConfig:
+    """Свой мобильный прокси: tinyproxy на телефоне, запуск/остановка по SSH (без adb)."""
+    use: bool = False
+    port: int = 8888             # порт tinyproxy на телефоне
+    rotate_ip: bool = True       # смена IP (airplane mode) при блокировке
+    login: str = ""
+    password: str = ""
+    server: str = ""             # host:port для SPFA body proxy (пусто = {ssh.host}:{port})
+    ssh: SshConfig = field(default_factory=SshConfig)
+
+
+@dataclass
+class ExternalMobileProxyConfig:
+    """Внешний мобильный прокси (платный сервис, напр. mobileproxy.rent)."""
     proxy_string: Optional[str] = None
     change_url: Optional[str] = None
     change_urls: List[str] = field(default_factory=list)
@@ -85,8 +93,8 @@ class ServerConfig:
 class AvitoConfig:
     links: Dict[str, LinkConfig] = field(default_factory=dict)
     camoufox: CamoufoxConfig = field(default_factory=CamoufoxConfig)
-    adb_proxy: AdbProxyConfig = field(default_factory=AdbProxyConfig)
-    mobile_proxy: MobileProxyConfig = field(default_factory=MobileProxyConfig)
+    own_mobile_proxy: OwnMobileProxyConfig = field(default_factory=OwnMobileProxyConfig)
+    external_mobile_proxy: ExternalMobileProxyConfig = field(default_factory=ExternalMobileProxyConfig)
     messengers: MessengersConfig = field(default_factory=MessengersConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     seller_black_list: List[str] = field(default_factory=list)

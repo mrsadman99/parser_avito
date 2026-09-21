@@ -30,12 +30,12 @@ from parser_cls import AvitoParse
 
 
 def _report_proxy(config) -> None:
-    """Сообщает, какой прокси будет использован (ADB поднимает AvitoParse)."""
-    if getattr(getattr(config, "adb_proxy", None), "use", False):
+    """Сообщает, какой прокси будет использован (свой поднимает AvitoParse)."""
+    if getattr(getattr(config, "own_mobile_proxy", None), "use", False):
         return
-    proxy_string = (config.mobile_proxy.proxy_string or "").strip()
+    proxy_string = (config.external_mobile_proxy.proxy_string or "").strip()
     if proxy_string:
-        print("ADB-прокси выключен — использую мобильный/серверный прокси из config.toml")
+        print("Свой мобильный прокси выключен — использую внешний мобильный/серверный прокси из config.toml")
     else:
         print("Прокси не задан — запросы пойдут напрямую")
 

@@ -59,24 +59,30 @@ humanize = true                      # человеческие движения
 geoip = true                         # гео/locale под IP прокси (нужен [geoip])
 
 
-# --- ADB-прокси (tinyproxy/microsocks на телефоне) ---
-# На телефоне: tinyproxy слушает порт (обычно 1080/5555). На ПК проброс:
-#   adb forward tcp:<local_port> tcp:<remote_port>
-[avito.adb_proxy]
-use = false                          # true — трафик через телефон (http)
-device_serial = ""                   # опционально: серийник устройства (adb -s SERIAL)
-local_port = 1080                    # порт на ПК после adb forward
-remote_port = 1080                   # порт tinyproxy на телефоне
+# --- Свой мобильный прокси (tinyproxy на телефоне через SSH, без adb) ---
+# tinyproxy запускается на телефоне (Termux) в tmux-сессии по SSH, порты НЕ
+# пробрасываются: парсер обращается к {ssh.host}:{port} напрямую.
+# На телефоне: pkg install tinyproxy openssh (sshd слушает 8022).
+[avito.own_mobile_proxy]
+use = false                          # true — трафик через телефон (свой мобильный прокси)
+port = 8888                          # порт tinyproxy на телефоне
 rotate_ip = true                     # смена IP через airplane mode при блокировке
 login = ""                           # опционально: логин HTTP (tinyproxy BasicAuth)
 password = ""                        # опционально: пароль HTTP (tinyproxy BasicAuth)
-server = ""                          # host:port для передачи в SPFA body proxy; пусто = 127.0.0.1:{local_port}
+server = ""                          # host:port для передачи в SPFA body proxy; пусто = {ssh.host}:{port}
+
+# SSH-подключение к телефону (запуск/остановка tinyproxy)
+[avito.own_mobile_proxy.ssh]
+host = ""                            # IP-адрес телефона
+port = 8022                          # порт SSH (у Termux sshd по умолчанию 8022)
+user = ""                            # пользователь SSH (в Termux — имя из `whoami`)
+password = ""                        # пароль SSH
 
 
-# --- Мобильный прокси (используется вместо adb) ---
-[avito.mobile_proxy]
+# --- Внешний мобильный прокси (платный сервис) ---
+[avito.external_mobile_proxy]
 proxy_string = ""                    # формат: логин:пароль@хост:порт
-change_url = ""                      # URL смены IP мобильного прокси (changeip)
+change_url = ""                      # URL смены IP внешнего мобильного прокси (changeip)
 # Дополнительные ссылки смены IP (fallback): если основная не смогла сменить IP,
 # парсер пробует следующую из списка.
 # change_urls = ["https://changeip.mobileproxy.space/?proxy_key=KEY2", "https://changeip.mobileproxy.space/?proxy_key=KEY3"]

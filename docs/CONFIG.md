@@ -136,23 +136,54 @@ block_threshold = 3
 
 ## 🛡 Прокси и обход блокировок
 
-### `proxy_string` — строка
+### Свой мобильный прокси (`[avito.own_mobile_proxy]`)
 
-Прокси для запросов к Avito в формате `username:password@host:port`.
+tinyproxy, запущенный на телефоне (Termux), — трафик идёт через мобильную сеть.
+tinyproxy поднимается **по SSH в tmux-сессии на телефоне** (без `adb` и без проброса
+портов): парсер обращается к `{ssh.host}:{port}` напрямую.
+
+Запуск/остановка: `python run.py`, `python scripts/start_own_proxy.py [--stop]`,
+`python scripts/stop.py` (без `--keep-proxy`).
 
 ```toml
-proxy_string = ""   # без прокси
+[avito.own_mobile_proxy]
+use = true          # true — трафик через свой мобильный прокси
+port = 8888         # порт tinyproxy на телефоне
+rotate_ip = true    # смена IP (airplane mode) при блокировках
+login = ""          # опционально: логин HTTP (tinyproxy BasicAuth)
+password = ""       # опционально: пароль HTTP (tinyproxy BasicAuth)
+server = ""         # host:port для SPFA body proxy; пусто = {ssh.host}:{port}
+
+[avito.own_mobile_proxy.ssh]
+host = "192.168.1.50"   # IP-адрес телефона
+port = 8022             # порт SSH (Termux sshd)
+user = "u0_a123"        # пользователь SSH (whoami в Termux)
+password = "***"        # пароль SSH
 ```
 
-- **+ `proxy_change_url`** → мобильный прокси (умеет менять IP)
-- **без `proxy_change_url`** → серверный (статический) прокси
+Требуется `paramiko` (`pip install -r requirements.txt`) и на телефоне:
+`pkg install tinyproxy openssh`, затем `sshd`. Смена IP (`rotate_ip`) — best-effort
+через airplane mode и требует root/`tsu` на телефоне.
+
+### Внешний мобильный прокси (`[avito.external_mobile_proxy]`)
+
+Платный мобильный прокси (например, mobileproxy.rent). Если `proxy_string` задан
+вместе с `change_url` — прокси умеет менять IP; без `change_url` — это обычный
+статический (серверный) прокси.
+
+```toml
+[avito.external_mobile_proxy]
+proxy_string = "login:pass@mproxy.site:11139"
+change_url = "https://changeip.mobileproxy.space/?proxy_key=***"
+# change_urls = ["..."]   # дополнительные ссылки смены IP (fallback)
+```
+
+- Формат `proxy_string`: `username:password@host:port`.
+- `change_url` — URL смены IP; парсер дёргает его при блокировках (`+&format=json`).
 - Только **HTTP(S)** — SOCKS не поддерживается без правки кода.
 
-### `proxy_change_url` — строка
-
-URL для смены IP (только для мобильных прокси), например `https://changeip.mobileproxy.space/?proxy_key=***`.
-Парсер дёргает этот URL при блокировках (`+&format=json`) и получает новый IP.
-Пусто = IP не меняется.
+Приоритет: если `[avito.own_mobile_proxy].use = true`, используется свой мобильный
+прокси, а внешний игнорируется.
 
 ### `use_webdriver` — булево
 
@@ -256,10 +287,13 @@ proxy_notifier = "127.0.0.1:5222"
 
 ### `detached_mode` — булево
 
-Как `run.py` запускает фоновые процессы (API, ADB-прокси, парсер):
+Как `run.py` запускает фоновые процессы (API, web, парсер):
 
-- `false` (по умолчанию) — в tmux-сессиях `api`, `web` (`--dev`), `proxy`, `parser`;
+- `false` (по умолчанию) — в tmux-сессиях `api`, `web` (`--dev`), `parser`;
 - `true` — независимыми фоновыми процессами (переживают выход из `run.py` и отключение SSH), логи в `logs/api.log` и `logs/parser.log`.
+
+Свой мобильный прокси (`[avito.own_mobile_proxy]`) на `detached_mode` не зависит:
+tinyproxy всегда запускается в tmux-сессии **на телефоне** по SSH.
 
 ```toml
 detached_mode = false

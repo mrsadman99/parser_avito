@@ -51,8 +51,8 @@ def main(page: ft.Page):
         vk_token.value = config.messengers.vk_token or ""
         vk_user_id.value = "\n".join(config.messengers.vk_user_id or [])
         count_page.value = str(config.count)
-        proxy.value = config.mobile_proxy.proxy_string or ""
-        proxy_change_ip.value = config.mobile_proxy.change_url or ""
+        proxy.value = config.external_mobile_proxy.proxy_string or ""
+        proxy_change_ip.value = config.external_mobile_proxy.change_url or ""
         pause_general.value = config.pause_general or 60
         min_delay.value = str(config.min_delay)
         max_delay.value = str(config.max_delay)
@@ -74,14 +74,16 @@ def main(page: ft.Page):
         camoufox_headless.value = config.camoufox.headless
         camoufox_humanize.value = config.camoufox.humanize
         camoufox_geoip.value = config.camoufox.geoip
-        use_adb_proxy.value = config.adb_proxy.use
-        adb_device_serial.value = config.adb_proxy.device_serial or ""
-        adb_local_port.value = str(config.adb_proxy.local_port)
-        adb_remote_port.value = str(config.adb_proxy.remote_port)
-        adb_rotate_ip.value = config.adb_proxy.rotate_ip
-        adb_proxy_login.value = config.adb_proxy.login or ""
-        adb_proxy_password.value = config.adb_proxy.password or ""
-        adb_proxy_server.value = config.adb_proxy.server or ""
+        use_own_mobile_proxy.value = config.own_mobile_proxy.use
+        own_proxy_port.value = str(config.own_mobile_proxy.port)
+        own_rotate_ip.value = config.own_mobile_proxy.rotate_ip
+        own_proxy_login.value = config.own_mobile_proxy.login or ""
+        own_proxy_password.value = config.own_mobile_proxy.password or ""
+        own_proxy_server.value = config.own_mobile_proxy.server or ""
+        ssh_host.value = config.own_mobile_proxy.ssh.host or ""
+        ssh_port.value = str(config.own_mobile_proxy.ssh.port)
+        ssh_user.value = config.own_mobile_proxy.ssh.user or ""
+        ssh_password.value = config.own_mobile_proxy.ssh.password or ""
 
         page.update()
 
@@ -142,17 +144,21 @@ def main(page: ft.Page):
                 "humanize": camoufox_humanize.value,
                 "geoip": camoufox_geoip.value,
             },
-            "adb_proxy": {
-                "use": use_adb_proxy.value,
-                "device_serial": adb_device_serial.value or "",
-                "local_port": to_int_safe(adb_local_port.value, 1080),
-                "remote_port": to_int_safe(adb_remote_port.value, 1080),
-                "rotate_ip": adb_rotate_ip.value,
-                "login": adb_proxy_login.value or "",
-                "password": adb_proxy_password.value or "",
-                "server": adb_proxy_server.value or "",
+            "own_mobile_proxy": {
+                "use": use_own_mobile_proxy.value,
+                "port": to_int_safe(own_proxy_port.value, 8888),
+                "rotate_ip": own_rotate_ip.value,
+                "login": own_proxy_login.value or "",
+                "password": own_proxy_password.value or "",
+                "server": own_proxy_server.value or "",
+                "ssh": {
+                    "host": ssh_host.value or "",
+                    "port": to_int_safe(ssh_port.value, 8022),
+                    "user": ssh_user.value or "",
+                    "password": ssh_password.value or "",
+                },
             },
-            "mobile_proxy": {
+            "external_mobile_proxy": {
                 "proxy_string": proxy.value or "",
                 "change_url": proxy_change_ip.value or "",
             },
@@ -591,18 +597,22 @@ def main(page: ft.Page):
     camoufox_humanize = ft.Checkbox("Человеческие движения", value=True)
     camoufox_geoip = ft.Checkbox("Гео под IP прокси", value=True)
 
-    # ADB-прокси (microsocks на телефоне)
-    use_adb_proxy = ft.Checkbox("ADB-прокси (microsocks на телефоне)", value=False,
-                                tooltip="Трафик через телефон: http -> adb forward -> microsocks -> мобильная сеть")
-    adb_device_serial = ft.TextField(label="Серийник устройства (необязательно)", width=250, text_size=12, height=40)
-    adb_local_port = ft.TextField(label="Локальный порт", value="1080", width=120, text_size=12, height=40)
-    adb_remote_port = ft.TextField(label="Порт microsocks", value="1080", width=120, text_size=12, height=40)
-    adb_rotate_ip = ft.Checkbox("Смена IP (airplane mode)", value=True)
-    adb_proxy_login = ft.TextField(label="Логин HTTP", value="", width=150, text_size=12, height=40)
-    adb_proxy_password = ft.TextField(label="Пароль HTTP", value="", password=True,
+    # Свой мобильный прокси (tinyproxy на телефоне по SSH)
+    use_own_mobile_proxy = ft.Checkbox("Свой мобильный прокси (tinyproxy на телефоне по SSH)", value=False,
+                                       tooltip="tinyproxy запускается на телефоне в tmux по SSH; "
+                                               "порты не пробрасываются, парсер ходит на ip:порт телефона")
+    own_proxy_port = ft.TextField(label="Порт tinyproxy на телефоне", value="8888", width=180, text_size=12, height=40)
+    own_rotate_ip = ft.Checkbox("Смена IP (airplane mode)", value=True)
+    own_proxy_login = ft.TextField(label="Логин HTTP", value="", width=150, text_size=12, height=40)
+    own_proxy_password = ft.TextField(label="Пароль HTTP", value="", password=True,
                                       can_reveal_password=True, width=150, text_size=12, height=40)
-    adb_proxy_server = ft.TextField(label="Адрес для SPFA (host:port)", value="", width=220, text_size=12, height=40,
-                                    tooltip="Какой адрес прокси передавать в тело SPFA. Пусто = 127.0.0.1:{adb_local_port}")
+    own_proxy_server = ft.TextField(label="Адрес для SPFA (host:port)", value="", width=220, text_size=12, height=40,
+                                    tooltip="Какой адрес прокси передавать в тело SPFA. Пусто = {ssh.host}:{own_proxy_port}")
+    ssh_host = ft.TextField(label="IP телефона (SSH)", value="", width=180, text_size=12, height=40)
+    ssh_port = ft.TextField(label="Порт SSH", value="8022", width=120, text_size=12, height=40)
+    ssh_user = ft.TextField(label="Пользователь SSH", value="", width=180, text_size=12, height=40)
+    ssh_password = ft.TextField(label="Пароль SSH", value="", password=True,
+                                can_reveal_password=True, width=180, text_size=12, height=40)
 
 
     accordion = ft.ExpansionPanelList(
@@ -674,7 +684,7 @@ def main(page: ft.Page):
                                 content=ft.Column([
                                     ft.Row([
                                         ft.Icon(ft.icons.PHONE_ANDROID, color=ft.colors.GREEN_400),
-                                        ft.Text("Мобильные/серверные прокси", size=14, weight=ft.FontWeight.W_500),
+                                        ft.Text("Внешний мобильный/серверный прокси", size=14, weight=ft.FontWeight.W_500),
                                     ]),
                                     ft.Container(
                                         content=ft.Column([
@@ -710,23 +720,24 @@ def main(page: ft.Page):
                                 ink=True,
                             ),
 
-                            # Карточка 4: Camoufox + ADB-прокси
+                            # Карточка 4: Camoufox + свой мобильный прокси
                             ft.Container(
                                 content=ft.Column([
                                     ft.Row([
                                         ft.Icon(ft.icons.SHIELD, color=ft.colors.ORANGE_400),
-                                        ft.Text("Camoufox + ADB-прокси", size=14, weight=ft.FontWeight.W_500),
+                                        ft.Text("Camoufox + свой мобильный прокси", size=14, weight=ft.FontWeight.W_500),
                                     ]),
                                     ft.Container(
                                         content=ft.Column([
                                             use_camoufox,
                                             ft.Row([camoufox_os, camoufox_headless, camoufox_humanize, camoufox_geoip]),
                                             ft.Divider(),
-                                            use_adb_proxy,
-                                            ft.Row([adb_local_port, adb_remote_port, adb_rotate_ip]),
-                                            ft.Row([adb_proxy_login, adb_proxy_password]),
-                                            adb_proxy_server,
-                                            adb_device_serial,
+                                            use_own_mobile_proxy,
+                                            ft.Row([own_proxy_port, own_rotate_ip]),
+                                            ft.Row([own_proxy_login, own_proxy_password]),
+                                            own_proxy_server,
+                                            ft.Row([ssh_host, ssh_port]),
+                                            ft.Row([ssh_user, ssh_password]),
                                         ]),
                                         margin=ft.margin.only(left=25, top=5),
                                     ),

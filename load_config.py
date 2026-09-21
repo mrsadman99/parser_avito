@@ -8,8 +8,9 @@ from dto import (
     AvitoConfig,
     LinkConfig,
     CamoufoxConfig,
-    AdbProxyConfig,
-    MobileProxyConfig,
+    SshConfig,
+    OwnMobileProxyConfig,
+    ExternalMobileProxyConfig,
     MessengersConfig,
     ServerConfig,
 )
@@ -42,6 +43,18 @@ def _coerce(dataclass_type, raw):
     return dataclass_type(**{k: v for k, v in raw.items() if k in allowed})
 
 
+def _coerce_own_mobile_proxy(raw) -> OwnMobileProxyConfig:
+    """Приводит сырой dict своего мобильного прокси к OwnMobileProxyConfig (с вложенным ssh)."""
+    if isinstance(raw, OwnMobileProxyConfig):
+        return raw
+    if not isinstance(raw, dict):
+        raw = {}
+    allowed = {f.name for f in fields(OwnMobileProxyConfig) if f.name != "ssh"}
+    config = OwnMobileProxyConfig(**{k: v for k, v in raw.items() if k in allowed})
+    config.ssh = _coerce(SshConfig, raw.get("ssh"))
+    return config
+
+
 def _parse_links(raw) -> dict:
     """Приводит сырую мапу links (dict) к {url: LinkConfig}."""
     result = {}
@@ -66,20 +79,28 @@ def _migrate_legacy(avito: dict, flat: dict) -> None:
             geoip=avito.get("camoufox_geoip", True),
         )
 
-    if not avito.get("adb_proxy"):
-        flat["adb_proxy"] = AdbProxyConfig(
+    if not avito.get("own_mobile_proxy") and not avito.get("adb_proxy"):
+        own = OwnMobileProxyConfig(
             use=avito.get("use_adb_proxy", False),
-            device_serial=avito.get("adb_device_serial", ""),
-            local_port=avito.get("adb_local_port", 1080),
-            remote_port=avito.get("adb_remote_port", 1080),
+            port=avito.get("own_mobile_proxy_port", avito.get("adb_remote_port", 8888)),
             rotate_ip=avito.get("adb_rotate_ip", True),
             login=avito.get("adb_proxy_login", ""),
             password=avito.get("adb_proxy_password", ""),
             server=avito.get("adb_proxy_server", ""),
         )
+        own.ssh = _coerce(
+            SshConfig,
+            avito.get("ssh") or {
+                "host": avito.get("ssh_host", ""),
+                "port": avito.get("ssh_port", 8022),
+                "user": avito.get("ssh_user", ""),
+                "password": avito.get("ssh_password", ""),
+            },
+        )
+        flat["own_mobile_proxy"] = own
 
-    if not avito.get("mobile_proxy"):
-        flat["mobile_proxy"] = MobileProxyConfig(
+    if not avito.get("external_mobile_proxy") and not avito.get("mobile_proxy"):
+        flat["external_mobile_proxy"] = ExternalMobileProxyConfig(
             proxy_string=avito.get("proxy_string"),
             change_url=avito.get("proxy_change_url"),
             change_urls=avito.get("proxy_change_urls", []),
@@ -121,8 +142,13 @@ def load_avito_config(path: str = "config.toml") -> AvitoConfig:
 
     flat["links"] = _parse_links(flat.get("links", {}))
     flat["camoufox"] = _coerce(CamoufoxConfig, avito.get("camoufox"))
-    flat["adb_proxy"] = _coerce(AdbProxyConfig, avito.get("adb_proxy"))
-    flat["mobile_proxy"] = _coerce(MobileProxyConfig, avito.get("mobile_proxy"))
+    flat["own_mobile_proxy"] = _coerce_own_mobile_proxy(
+        avito.get("own_mobile_proxy") or avito.get("adb_proxy")
+    )
+    flat["external_mobile_proxy"] = _coerce(
+        ExternalMobileProxyConfig,
+        avito.get("external_mobile_proxy") or avito.get("mobile_proxy"),
+    )
     flat["messengers"] = _coerce(MessengersConfig, avito.get("messengers"))
     flat["server"] = _coerce(ServerConfig, avito.get("server"))
 

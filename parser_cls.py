@@ -25,7 +25,7 @@ from parser.http.camoufox_client import CamoufoxClient
 from parser.proxies.proxy_factory import build_proxy
 from parser.url_converter import AvitoUrlConverter
 from utils.parse_phone import ParsePhone
-from utils.adb_proxy import ensure_adb_proxy
+from utils.own_mobile_proxy import ensure_own_mobile_proxy
 from version import VERSION
 from lang import SPFA_PROXY_REQUIRED
 
@@ -66,7 +66,7 @@ class AvitoParse:
     ):
         self.config = config
         self.links_provider = links_provider
-        ensure_adb_proxy(self.config)
+        ensure_own_mobile_proxy(self.config)
         self.proxy = build_proxy(self.config)
         self.cookies_provider = build_cookies_provider(config=config, proxy=self.proxy)
         self.db_handler = SQLiteDBHandler()
@@ -118,10 +118,11 @@ class AvitoParse:
         return links
 
     def get_proxy_obj(self) -> Proxy | None:
-        if all([self.config.mobile_proxy.proxy_string, self.config.mobile_proxy.change_url]):
+        if all([self.config.external_mobile_proxy.proxy_string,
+                self.config.external_mobile_proxy.change_url]):
             return Proxy(
-                proxy_string=self.config.mobile_proxy.proxy_string,
-                change_ip_link=self.config.mobile_proxy.change_url
+                proxy_string=self.config.external_mobile_proxy.proxy_string,
+                change_ip_link=self.config.external_mobile_proxy.change_url
             )
         logger.info("Работаем без прокси")
         return None
@@ -228,7 +229,7 @@ class AvitoParse:
 
         current_ip = self.http.get_current_ip()
         if current_ip:
-            if self.config.mobile_proxy.proxy_string:
+            if self.config.external_mobile_proxy.proxy_string or self.config.own_mobile_proxy.use:
                 logger.info(f"🌐 IP (через прокси): {current_ip}")
             else:
                 logger.info(f"🌐 Текущий IP: {current_ip}")
@@ -580,11 +581,15 @@ if __name__ == "__main__":
         logger.error(f"Ошибка загрузки конфига: {err}")
         exit(1)
 
-    if config.use_bypass_api and not (config.mobile_proxy.proxy_string or "").strip():
+    has_spfa_proxy = bool(
+        (config.external_mobile_proxy.proxy_string or "").strip()
+        or config.own_mobile_proxy.use
+    )
+    if config.use_bypass_api and not has_spfa_proxy:
         logger.critical(f"SPFA не будет работать без прокси. {SPFA_PROXY_REQUIRED}")
         exit(1)
 
-    if config.use_bypass_api and not config.mobile_proxy.change_url:
+    if config.use_bypass_api and not config.external_mobile_proxy.change_url:
         logger.warning(
             "SPFA запущен с серверным (статическим) прокси. Если будет много ошибок - установить большие "
             "min_delay/max_delay и pause_general, чтобы снизить риск блокировок."

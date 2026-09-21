@@ -10,6 +10,7 @@ httpx==0.28.1                # HTTP для cookies / уведомлений
 requests==2.32.3             # HTTP для прокси / SPFA / уведомлений
 PySocks==1.7.1               # поддержка socks5:// прокси в requests
 beautifulsoup4==4.13.4       # парсинг HTML
+paramiko==3.5.1              # SSH к телефону (свой мобильный прокси: tinyproxy)
 
 # --- GUI ---
 flet==0.24.1                 # графический интерфейс (AvitoParser.py)

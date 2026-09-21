@@ -2,15 +2,16 @@
 """Запуск веб-приложения и REST API БЕЗ парсера.
 
 Поднимает (в фоне, как run.py — процесс сразу завершается):
-  * ADB-прокси (если включён [avito.adb_proxy].use) — через единую точку utils.adb_proxy;
+  * свой мобильный прокси (если включён [avito.own_mobile_proxy].use) — через единую
+    точку utils.own_mobile_proxy (tinyproxy на телефоне по SSH, без adb);
   * REST API (uvicorn server.main:app);
   * при --dev — ещё и Vite dev-сервер; иначе раздаётся собранный фронтенд.
 
 Парсер НЕ запускается — его можно стартовать отдельно:
-    python run.py                 # всё вместе (web + api + adb-proxy + парсер)
+    python run.py                 # всё вместе (web + api + proxy + парсер)
     python scripts/run_parser.py  # только парсер (ссылки из веб-БД)
 
-    python scripts/run_server.py          # production: сборка фронта + API + adb-proxy
+    python scripts/run_server.py          # production: сборка фронта + API + proxy
     python scripts/run_server.py --dev    # Vite dev-сервер вместо собранного фронта
 """
 import argparse
@@ -21,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from load_config import load_avito_config
 from run import ROOT, WEB_DIR, build_frontend, ensure_web_deps, launch
-from utils.adb_proxy import ensure_adb_proxy
+from utils.own_mobile_proxy import ensure_own_mobile_proxy
 
 
 def main():
@@ -45,7 +46,7 @@ def main():
 
     print(f"Режим запуска: {'detached (фоновые процессы)' if detached else 'tmux'}")
 
-    ensure_adb_proxy(config)
+    ensure_own_mobile_proxy(config)
 
     if args.dev:
         launch(

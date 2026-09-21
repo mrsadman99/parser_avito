@@ -1,51 +1,51 @@
 from loguru import logger
 
 from dto import AvitoConfig
-from .proxy import NoProxy, ServerProxy, MobileProxy, AdbMicrosocksProxy, Proxy
+from .proxy import NoProxy, ServerProxy, ExternalMobileProxy, OwnMobileProxy, Proxy
 
 
 def build_proxy(config: AvitoConfig) -> Proxy:
     """
-    Определяет тип прокси (adb-мобильный/мобильный/серверный/без прокси).
+    Определяет тип прокси (свой мобильный / внешний мобильный / серверный / без прокси).
 
-    Мобильный прокси может иметь НЕСКОЛЬКО ссылок смены IP:
+    Свой мобильный прокси — tinyproxy на телефоне (SSH, без adb forward).
+    Внешний мобильный прокси может иметь НЕСКОЛЬКО ссылок смены IP:
         change_url = "..."            # основная (одиночная)
         change_urls = ["...", "..."]  # дополнительные (fallback)
     Если одна ссылка не смогла сменить IP — парсер пробует следующую.
     """
-    if config.adb_proxy.use:
-        logger.info("Прокси определён как ADB (tinyproxy/microsocks на телефоне)")
-        return AdbMicrosocksProxy(
-            local_port=config.adb_proxy.local_port,
-            remote_port=config.adb_proxy.remote_port,
-            device_serial=config.adb_proxy.device_serial or None,
-            rotate_ip=config.adb_proxy.rotate_ip,
-            login=config.adb_proxy.login or None,
-            password=config.adb_proxy.password or None,
-            spfa_server=config.adb_proxy.server or None,
+    if config.own_mobile_proxy.use:
+        logger.info("Прокси определён как свой мобильный (tinyproxy на телефоне по SSH)")
+        return OwnMobileProxy(
+            ssh=config.own_mobile_proxy.ssh,
+            port=config.own_mobile_proxy.port,
+            rotate_ip=config.own_mobile_proxy.rotate_ip,
+            login=config.own_mobile_proxy.login or None,
+            password=config.own_mobile_proxy.password or None,
+            spfa_server=config.own_mobile_proxy.server or None,
         )
 
     change_urls = []
-    if config.mobile_proxy.change_url:
-        change_urls.append(config.mobile_proxy.change_url)
-    if config.mobile_proxy.change_urls:
-        for cu in config.mobile_proxy.change_urls:
+    if config.external_mobile_proxy.change_url:
+        change_urls.append(config.external_mobile_proxy.change_url)
+    if config.external_mobile_proxy.change_urls:
+        for cu in config.external_mobile_proxy.change_urls:
             if cu and cu not in change_urls:
                 change_urls.append(cu)
 
-    if change_urls and not config.mobile_proxy.proxy_string:
+    if change_urls and not config.external_mobile_proxy.proxy_string:
         raise ValueError("change_url указан без proxy_string")
 
-    if config.mobile_proxy.proxy_string and change_urls:
-        logger.info(f"Прокси определен как мобильный (ссылок смены IP: {len(change_urls)})")
-        return MobileProxy(
-            config.mobile_proxy.proxy_string,
+    if config.external_mobile_proxy.proxy_string and change_urls:
+        logger.info(f"Прокси определён как внешний мобильный (ссылок смены IP: {len(change_urls)})")
+        return ExternalMobileProxy(
+            config.external_mobile_proxy.proxy_string,
             change_urls,
             change_ip_proxy=config.messengers.proxy_notifier,
         )
 
-    if config.mobile_proxy.proxy_string:
-        logger.info("Прокси определен как серверный")
-        return ServerProxy(config.mobile_proxy.proxy_string)
+    if config.external_mobile_proxy.proxy_string:
+        logger.info("Прокси определён как серверный")
+        return ServerProxy(config.external_mobile_proxy.proxy_string)
 
     return NoProxy()
