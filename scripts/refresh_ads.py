@@ -17,6 +17,7 @@
     python scripts/refresh_ads.py --only-missing  # только там, где нет city/has_delivery
 """
 import argparse
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,18 @@ from db_service import SQLiteDBHandler
 from load_config import load_avito_config
 from parser.detail import parse_ad_html
 from parser_cls import AvitoParse
+
+
+def _start_adb_proxy(config) -> None:
+    """Поднимает прокси на телефоне (как run.py), если включён [avito.adb_proxy].use."""
+    if not getattr(config.adb_proxy, "use", False):
+        return
+    script = Path(__file__).resolve().parent / "start_adb_proxy.py"
+    if not script.exists():
+        print(f"ADB-прокси включён, но не найден {script}")
+        return
+    print("Запускаю ADB-прокси (scripts/start_adb_proxy.py)...")
+    subprocess.run([sys.executable, str(script), "--no-attach"], check=False)
 
 
 def _now_iso() -> str:
@@ -75,6 +88,7 @@ def main(argv=None):
     print(f"К обновлению: {total} объявлений"
           + (" (dry-run)" if args.dry_run else ""))
 
+    _start_adb_proxy(config)
     avito = AvitoParse(config)  # тот же прокси/cookies/throttle, что и при парсинге
 
     updated = removed = skipped = 0
