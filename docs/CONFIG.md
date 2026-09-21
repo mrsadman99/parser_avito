@@ -139,8 +139,10 @@ block_threshold = 3
 ### Свой мобильный прокси (`[avito.own_mobile_proxy]`)
 
 tinyproxy, запущенный на телефоне (Termux), — трафик идёт через мобильную сеть.
-tinyproxy поднимается **по SSH в tmux-сессии на телефоне** (без `adb` и без проброса
-портов): парсер обращается к `{ssh.host}:{port}` напрямую.
+SSH-соединение с телефоном держит **хост, на котором стартует парсер**: локальная
+tmux-сессия `proxy` (или фоновый процесс при `detached_mode = true`) запускает
+`scripts/start_own_proxy.py --foreground`, который по SSH выполняет `tinyproxy -d`.
+Порты НЕ пробрасываются: парсер обращается к `{ssh.host}:{port}` напрямую.
 
 Запуск/остановка: `python run.py`, `python scripts/start_own_proxy.py [--stop]`,
 `python scripts/stop.py` (без `--keep-proxy`).
@@ -287,13 +289,13 @@ proxy_notifier = "127.0.0.1:5222"
 
 ### `detached_mode` — булево
 
-Как `run.py` запускает фоновые процессы (API, web, парсер):
+Как `run.py` запускает процессы (прокси, API, web, парсер):
 
-- `false` (по умолчанию) — в tmux-сессиях `api`, `web` (`--dev`), `parser`;
-- `true` — независимыми фоновыми процессами (переживают выход из `run.py` и отключение SSH), логи в `logs/api.log` и `logs/parser.log`.
+- `false` (по умолчанию) — в локальных tmux-сессиях `proxy`, `api`, `web` (`--dev`), `parser`;
+- `true` — независимыми фоновыми процессами (переживают выход из `run.py` и отключение SSH), логи в `logs/proxy.log`, `logs/api.log`, `logs/parser.log`.
 
-Свой мобильный прокси (`[avito.own_mobile_proxy]`) на `detached_mode` не зависит:
-tinyproxy всегда запускается в tmux-сессии **на телефоне** по SSH.
+Свой мобильный прокси также запускается на хосте: tmux-сессией `proxy` (или фоновым
+процессом) и держит SSH-соединение с телефоном, где работает tinyproxy.
 
 ```toml
 detached_mode = false

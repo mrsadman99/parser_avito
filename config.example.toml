@@ -60,8 +60,9 @@ geoip = true                         # гео/locale под IP прокси (н�
 
 
 # --- Свой мобильный прокси (tinyproxy на телефоне через SSH, без adb) ---
-# tinyproxy запускается на телефоне (Termux) в tmux-сессии по SSH, порты НЕ
-# пробрасываются: парсер обращается к {ssh.host}:{port} напрямую.
+# SSH-соединение держит tmux-сессия proxy НА ХОСТЕ парсера (или фоновый процесс при
+# detached_mode = true): внутри выполняется scripts/start_own_proxy.py --foreground.
+# Порты НЕ пробрасываются: парсер обращается к {ssh.host}:{port} напрямую.
 # На телефоне: pkg install tinyproxy openssh (sshd слушает 8022).
 [avito.own_mobile_proxy]
 use = false                          # true — трафик через телефон (свой мобильный прокси)

@@ -3,7 +3,7 @@
 
 Поднимает (в фоне, как run.py — процесс сразу завершается):
   * свой мобильный прокси (если включён [avito.own_mobile_proxy].use) — через единую
-    точку utils.own_mobile_proxy (tinyproxy на телефоне по SSH, без adb);
+    точку utils.own_mobile_proxy (локальная tmux-сессия proxy держит SSH к телефону);
   * REST API (uvicorn server.main:app);
   * при --dev — ещё и Vite dev-сервер; иначе раздаётся собранный фронтенд.
 
