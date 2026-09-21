@@ -606,8 +606,9 @@ def main(page: ft.Page):
     own_proxy_login = ft.TextField(label="Логин HTTP", value="", width=150, text_size=12, height=40)
     own_proxy_password = ft.TextField(label="Пароль HTTP", value="", password=True,
                                       can_reveal_password=True, width=150, text_size=12, height=40)
-    own_proxy_server = ft.TextField(label="Адрес для SPFA (host:port)", value="", width=220, text_size=12, height=40,
-                                    tooltip="Какой адрес прокси передавать в тело SPFA. Пусто = {ssh.host}:{own_proxy_port}")
+    own_proxy_server = ft.TextField(label="Адрес прокси (host)", value="", width=220, text_size=12, height=40,
+                                    tooltip="Адрес прокси для парсера и SPFA (порт берётся из «Порт tinyproxy»). "
+                                            "Пусто = ssh.host")
     ssh_host = ft.TextField(label="IP телефона (SSH)", value="", width=180, text_size=12, height=40)
     ssh_port = ft.TextField(label="Порт SSH", value="8022", width=120, text_size=12, height=40)
     ssh_user = ft.TextField(label="Пользователь SSH", value="", width=180, text_size=12, height=40)

@@ -57,7 +57,7 @@ class OwnMobileProxyConfig:
     rotate_ip: bool = True       # смена IP (airplane mode) при блокировке
     login: str = ""
     password: str = ""
-    server: str = ""             # host:port для SPFA body proxy (пусто = {ssh.host}:{port})
+    server: str = ""             # адрес прокси (host или host:port) для парсера и SPFA; пусто = ssh.host
     ssh: SshConfig = field(default_factory=SshConfig)
 
 

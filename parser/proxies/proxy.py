@@ -113,20 +113,23 @@ class ExternalMobileProxy(Proxy):
 class OwnMobileProxy(Proxy):
     """Свой мобильный прокси: tinyproxy на телефоне, запуск по SSH (без adb forward).
 
-    Трафик идёт: Camoufox -> http://{ssh.host}:{port} -> tinyproxy на телефоне
+    Адрес прокси собирается из `server` (own_mobile_proxy.server) и `port`
+    (own_mobile_proxy.port): {server}:{port}. Если `server` пуст — берётся ssh.host.
+    Трафик идёт: Camoufox -> http://{server}:{port} -> tinyproxy на телефоне
     -> мобильная сеть. Смена IP — airplane mode на телефоне по SSH.
     """
 
-    def __init__(self, ssh, port=8888, rotate_ip=True, login=None, password=None,
-                 spfa_server=None):
+    def __init__(self, ssh, server=None, port=8888, rotate_ip=True, login=None,
+                 password=None):
         self.ssh = ssh
         self.port = int(port or 8888)
-        host = (getattr(ssh, "host", "") or "").strip() or "127.0.0.1"
-        self.host = f"{host}:{self.port}"
+        host = (server or "").strip() or (getattr(ssh, "host", "") or "").strip()
+        if host and ":" not in host:
+            host = f"{host}:{self.port}"
+        self.host = host or f"127.0.0.1:{self.port}"
         self.rotate_ip = rotate_ip
         self.login = login
         self.password = password
-        self.spfa_server = spfa_server
         auth = f"{login}:{password}@" if login and password else ""
         self.proxy_url = f"http://{auth}{self.host}"
 
@@ -141,11 +144,8 @@ class OwnMobileProxy(Proxy):
         return proxy
 
     def get_spfa_proxy_string(self):
-        host = self.spfa_server or self.host
-        if host and ":" not in host:
-            host = f"{host}:{self.port}"
         auth = f"{self.login}:{self.password}@" if self.login and self.password else ""
-        return f"{auth}{host}"
+        return f"{auth}{self.host}"
 
     def handle_block(self):
         if not self.rotate_ip:

@@ -4,7 +4,8 @@
 телефоном держит **хост, на котором стартует парсер**: tmux-сессия `proxy` (или
 фоновый процесс в detached_mode) запускает `scripts/start_own_proxy.py --foreground`,
 который по SSH выполняет `tinyproxy -d` и стримит его вывод. Порты НЕ пробрасываются
-(никакого `adb forward`): парсер обращается к `{ssh.host}:{own_mobile_proxy.port}`.
+(никакого `adb forward`): адрес прокси собирается из `own_mobile_proxy.server` и
+`own_mobile_proxy.port` (пусто = `ssh.host`), парсер обращается туда напрямую.
 
 Настройки берутся из config.toml:
 

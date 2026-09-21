@@ -70,7 +70,7 @@ port = 8888                          # порт tinyproxy на телефоне
 rotate_ip = true                     # смена IP через airplane mode при блокировке
 login = ""                           # опционально: логин HTTP (tinyproxy BasicAuth)
 password = ""                        # опционально: пароль HTTP (tinyproxy BasicAuth)
-server = ""                          # host:port для передачи в SPFA body proxy; пусто = {ssh.host}:{port}
+server = ""                          # адрес прокси (host или host:port) для парсера и SPFA; пусто = ssh.host
 
 # SSH-подключение к телефону (запуск/остановка tinyproxy)
 [avito.own_mobile_proxy.ssh]

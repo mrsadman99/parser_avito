@@ -3,8 +3,9 @@
 
 tmux-сессия живёт на ХОСТЕ, где стартует парсер: внутри неё выполняется
 `--foreground`, который держит SSH-соединение с телефоном и запускает там
-`tinyproxy -d` (без `adb` и без проброса портов). Парсер обращается к
-`{ssh.host}:{own_mobile_proxy.port}` напрямую.
+`tinyproxy -d` (без `adb` и без проброса портов). Адрес прокси собирается из
+`own_mobile_proxy.server` и `own_mobile_proxy.port` (пусто = `ssh.host`), парсер
+обращается туда напрямую.
 
 Настройки: [avito.own_mobile_proxy] и [avito.own_mobile_proxy.ssh] в config.toml.
 

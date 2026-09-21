@@ -142,7 +142,10 @@ tinyproxy, запущенный на телефоне (Termux), — трафик
 SSH-соединение с телефоном держит **хост, на котором стартует парсер**: локальная
 tmux-сессия `proxy` (или фоновый процесс при `detached_mode = true`) запускает
 `scripts/start_own_proxy.py --foreground`, который по SSH выполняет `tinyproxy -d`.
-Порты НЕ пробрасываются: парсер обращается к `{ssh.host}:{port}` напрямую.
+Порты НЕ пробрасываются: адрес прокси собирается как `{server}:{port}` (если `server`
+пуст — берётся `ssh.host`), и парсер обращается туда напрямую. Этот же адрес
+(`login:password@{server}:{port}`) уходит в SPFA в поле `proxy` тела запроса, а сам
+запрос к SPFA выполняется через `[avito.messengers].proxy_notifier`.
 
 Запуск/остановка: `python run.py`, `python scripts/start_own_proxy.py [--stop]`,
 `python scripts/stop.py` (без `--keep-proxy`).
@@ -154,10 +157,10 @@ port = 8888         # порт tinyproxy на телефоне
 rotate_ip = true    # смена IP (airplane mode) при блокировках
 login = ""          # опционально: логин HTTP (tinyproxy BasicAuth)
 password = ""       # опционально: пароль HTTP (tinyproxy BasicAuth)
-server = ""         # host:port для SPFA body proxy; пусто = {ssh.host}:{port}
+server = ""         # адрес прокси (host или host:port) для парсера и SPFA; пусто = ssh.host
 
 [avito.own_mobile_proxy.ssh]
-host = "192.168.1.50"   # IP-адрес телефона
+host = "192.168.1.50"   # IP-адрес телефона (только для SSH)
 port = 8022             # порт SSH (Termux sshd)
 user = "u0_a123"        # пользователь SSH (whoami в Termux)
 password = "***"        # пароль SSH
