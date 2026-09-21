@@ -6,7 +6,10 @@
 затем запускается новый.
 
 Смена IP — перевод телефона в режим полёта и обратно **через adb**
-(`adb shell settings put global airplane_mode_on …`).
+(`adb shell settings put global airplane_mode_on …`). После смены IP и при каждом
+запуске tinyproxy на телефоне выполняется `scripts/update_network.sh`
+(маршрутизация Termux через мобильный интерфейс + обновление Bind в tinyproxy.conf):
+стоп tinyproxy → update_network.sh → старт tinyproxy.
 
 Порты НЕ пробрасываются (никакого `adb forward`): адрес прокси собирается из
 `own_mobile_proxy.server` и `own_mobile_proxy.port` (пусто = `ssh.host`), парсер
@@ -27,16 +30,22 @@
 
 Для SSH используется paramiko (pip install paramiko), для режима полёта — adb в PATH.
 """
+import base64
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from loguru import logger
+
+ROOT = Path(__file__).resolve().parent.parent
+UPDATE_NETWORK_SCRIPT = ROOT / "scripts" / "update_network.sh"
 
 TERMUX_PREFIX = "/data/data/com.termux/files/usr"
 TERMUX_HOME = "/data/data/com.termux/files/home"
 TINYPROXY_CONF = f"{TERMUX_PREFIX}/etc/tinyproxy/tinyproxy.conf"
 DEFAULT_DEVICE_LOG = f"{TERMUX_HOME}/tinyproxy.log"
+REMOTE_UPDATE_SCRIPT = f"{TERMUX_HOME}/update_network.sh"
 
 AIRPLANE_ON_SLEEP = 5     # пауза в режиме полёта (сброс сети)
 AIRPLANE_OFF_SLEEP = 12   # пауза после выхода из режима полёта (получение нового IP)
@@ -44,7 +53,7 @@ AIRPLANE_OFF_SLEEP = 12   # пауза после выхода из режима
 REMOTE_ENV = (
     f"export PREFIX={TERMUX_PREFIX}; "
     f"export HOME={TERMUX_HOME}; "
-    "export PATH=$PREFIX/bin:$PATH; "
+    "export PATH=$PREFIX/bin:/system/bin:/system/xbin:/sbin:$PATH; "
     "export LD_LIBRARY_PATH=$PREFIX/lib; "
     "export TMPDIR=$PREFIX/tmp; "
     "mkdir -p $TMPDIR; "
@@ -126,6 +135,53 @@ def _remote_status_command() -> str:
     return REMOTE_ENV + "pgrep -x tinyproxy >/dev/null 2>&1 && echo running || echo stopped"
 
 
+def _update_network(client) -> bool:
+    """Заливает scripts/update_network.sh на телефон и выполняет его.
+
+    Скрипт настраивает маршрутизацию Termux через мобильный интерфейс и обновляет
+    Bind в tinyproxy.conf (нужен root/`su` на телефоне).
+    """
+    if not UPDATE_NETWORK_SCRIPT.exists():
+        logger.warning(f"Не найден {UPDATE_NETWORK_SCRIPT} — настройку сети пропускаю")
+        return True
+
+    try:
+        payload = base64.b64encode(UPDATE_NETWORK_SCRIPT.read_bytes()).decode("ascii")
+    except OSError as err:
+        logger.warning(f"Не удалось прочитать {UPDATE_NETWORK_SCRIPT}: {err}")
+        return False
+
+    command = (
+        REMOTE_ENV
+        + f"echo {payload} | base64 -d > {REMOTE_UPDATE_SCRIPT} "
+        + f"&& chmod +x {REMOTE_UPDATE_SCRIPT} "
+        + f"&& {TERMUX_PREFIX}/bin/bash {REMOTE_UPDATE_SCRIPT}"
+    )
+    try:
+        code, out, err = _run_remote(client, command, timeout=180)
+    except Exception as err:
+        logger.warning(f"Ошибка выполнения update_network.sh: {err}")
+        return False
+
+    if out:
+        logger.info(f"update_network.sh:\n{out}")
+    if code != 0:
+        logger.warning(f"update_network.sh завершился с кодом {code}: {err}")
+        return False
+    return True
+
+
+def _restart_tinyproxy(client, device_log: str):
+    """Стоп tinyproxy → update_network.sh → старт tinyproxy. Возвращает (ok, output)."""
+    _run_remote(client, _remote_stop_command())
+    _update_network(client)
+    code, out, err = _run_remote(client, _remote_start_command(device_log))
+    if code != 0:
+        logger.warning(f"Не удалось запустить tinyproxy (код {code}): {err}")
+        return False, (err or out)
+    return True, out
+
+
 # --------------------------------------------------------------------------- #
 # Публичный API
 # --------------------------------------------------------------------------- #
@@ -155,7 +211,7 @@ def start_proxy(config, device_log: str = DEFAULT_DEVICE_LOG) -> int:
         return 1
 
     try:
-        code, out, err = _run_remote(client, _remote_start_command(device_log))
+        ok, out = _restart_tinyproxy(client, device_log)
     except Exception as err:
         print(f"❌ Ошибка выполнения команды по SSH: {err}", file=sys.stderr)
         return 1
@@ -164,11 +220,12 @@ def start_proxy(config, device_log: str = DEFAULT_DEVICE_LOG) -> int:
 
     if out:
         print(out)
-    if code != 0:
-        print(f"❌ Ошибка на телефоне (код {code}): {err}", file=sys.stderr)
+    if not ok:
+        print("❌ Не удалось запустить tinyproxy на телефоне", file=sys.stderr)
         return 1
 
-    print(f"tinyproxy запущен на телефоне (nohup). Лог на телефоне: {device_log}")
+    print(f"tinyproxy запущен на телефоне (nohup), update_network.sh выполнен. "
+          f"Лог на телефоне: {device_log}")
     return 0
 
 
@@ -236,8 +293,8 @@ def _adb(adb_serial, *args, timeout: int = 30):
         return None
 
 
-def rotate_ip(adb_serial=None) -> bool:
-    """Меняет IP своего прокси: режим полёта через adb (включить → выключить)."""
+def _rotate_airplane(adb_serial) -> bool:
+    """Режим полёта через adb: включить → подождать → выключить → подождать."""
     device = f"adb -s {adb_serial}" if adb_serial else "adb"
 
     state = _adb(adb_serial, "get-state")
@@ -263,9 +320,41 @@ def rotate_ip(adb_serial=None) -> bool:
     _adb(adb_serial, "shell", "am", "broadcast",
          "-a", "android.intent.action.AIRPLANE_MODE", "--ez", "state", "false")
     time.sleep(AIRPLANE_OFF_SLEEP)
-
-    logger.success("IP обновлён: режим полёта выключен, сеть восстановлена")
     return True
+
+
+def rotate_ip(adb_serial=None, ssh=None, device_log: str = DEFAULT_DEVICE_LOG) -> bool:
+    """Смена IP своего прокси.
+
+    1. режим полёта и обратно через adb;
+    2. стоп tinyproxy → update_network.sh → старт tinyproxy (по SSH).
+    """
+    if not _rotate_airplane(adb_serial):
+        return False
+
+    if ssh is None or not (getattr(ssh, "host", "") or "").strip():
+        logger.warning("Смена IP: не задан SSH — tinyproxy не перезапущен (Bind останется старым)")
+        return False
+
+    logger.info("🔧 Перезапускаю tinyproxy: стоп → update_network.sh → старт...")
+    try:
+        client = _connect(ssh)
+    except Exception as err:
+        logger.warning(f"Смена IP: не удалось подключиться по SSH для перезапуска tinyproxy: {err}")
+        return False
+    try:
+        ok, out = _restart_tinyproxy(client, device_log)
+    except Exception as err:
+        logger.warning(f"Смена IP: ошибка перезапуска tinyproxy: {err}")
+        return False
+    finally:
+        client.close()
+
+    if out:
+        logger.info(f"tinyproxy: {out}")
+    if ok:
+        logger.success("IP обновлён: режим полёта выключен, tinyproxy перезапущен")
+    return ok
 
 
 def ensure_own_mobile_proxy(config) -> bool:

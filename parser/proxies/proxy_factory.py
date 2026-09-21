@@ -21,7 +21,7 @@ def build_proxy(config: AvitoConfig) -> Proxy:
             rotate_ip=config.own_mobile_proxy.rotate_ip,
             login=config.own_mobile_proxy.login or None,
             password=config.own_mobile_proxy.password or None,
-            ssh_host=config.own_mobile_proxy.ssh.host or None,
+            ssh=config.own_mobile_proxy.ssh,
         )
 
     change_urls = []

@@ -140,12 +140,13 @@ block_threshold = 3
 
 tinyproxy, запущенный на телефоне (Termux), — трафик идёт через мобильную сеть.
 Запускается по SSH через `nohup ... &` (без tmux) и живёт независимо от SSH-сессии.
-При каждом запуске старый tinyproxy сначала останавливается (`pkill -x tinyproxy`),
-поэтому повторный запуск = перезапуск. Порты НЕ пробрасываются: адрес прокси
-собирается как `{server}:{port}` (если `server` пуст — берётся `ssh.host`), и парсер
-обращается туда напрямую. Этот же адрес (`login:password@{server}:{port}`) уходит
-в SPFA в поле `proxy` тела запроса, а сам запрос к SPFA выполняется через
-`[avito.messengers].proxy_notifier`.
+При каждом запуске выполняется `scripts/update_network.sh` (маршрутизация Termux
+через мобильный интерфейс + обновление `Bind` в `tinyproxy.conf`), причём в порядке
+**стоп tinyproxy → update_network.sh → старт tinyproxy**. Порты НЕ пробрасываются:
+адрес прокси собирается как `{server}:{port}` (если `server` пуст — берётся
+`ssh.host`), и парсер обращается туда напрямую. Этот же адрес
+(`login:password@{server}:{port}`) уходит в SPFA в поле `proxy` тела запроса, а сам
+запрос к SPFA выполняется через `[avito.messengers].proxy_notifier`.
 
 Запуск/остановка:
 - только прокси: `python scripts/run_proxy.py [--verify|--stop]`;
@@ -173,7 +174,8 @@ password = "***"        # пароль SSH
 `pkg install tinyproxy openssh`, затем `sshd`. Смена IP (`rotate_ip`) выполняется
 **через adb**: телефон переводится в режим полёта и обратно (`adb shell settings put
 global airplane_mode_on 1/0` + broadcast); `adb` должен быть в `PATH`, устройство —
-в `adb_serial` (или подключено одно).
+в `adb_serial` (или подключено одно). После смены IP и при каждом запуске tinyproxy
+на телефоне выполняется `scripts/update_network.sh` (нужен root/`su` на телефоне).
 
 ### Внешний мобильный прокси (`[avito.external_mobile_proxy]`)
 

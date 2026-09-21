@@ -131,10 +131,11 @@ class OwnMobileProxy(Proxy):
     """
 
     def __init__(self, adb_serial=None, server=None, port=8888, rotate_ip=True,
-                 login=None, password=None, ssh_host=None):
+                 login=None, password=None, ssh=None):
         self.adb_serial = adb_serial
+        self.ssh = ssh
         self.port = int(port or 8888)
-        host = (server or "").strip() or (ssh_host or "").strip()
+        host = (server or "").strip() or (getattr(ssh, "host", "") or "").strip()
         if host and ":" not in host:
             host = f"{host}:{self.port}"
         self.host = host or f"127.0.0.1:{self.port}"
@@ -163,4 +164,4 @@ class OwnMobileProxy(Proxy):
             logger.warning("Смена IP своего мобильного прокси отключена (rotate_ip = false)")
             return False
         from utils.own_mobile_proxy import rotate_ip
-        return rotate_ip(self.adb_serial)
+        return rotate_ip(self.adb_serial, ssh=self.ssh)
