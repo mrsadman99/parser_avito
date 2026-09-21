@@ -4,7 +4,7 @@
 Для каждого уже распарсенного объявления (ad_url из таблицы viewed):
   * запрашивает detail-страницу тем же стеком, что и парсер — тот же прокси,
     cookies и общий throttle/очередь с задержкой min_delay..max_delay
-    (через AvitoParse.fetch_data);
+    (через AvitoParse.fetch_data); домен avito.ru заменяется на m.avito.ru;
   * обновляет поля в таблице viewed: price, title, description, ad_url,
     photo_url, has_delivery, city, seller_rating, seller_reviews и дату
     парсинга (scanned_at);
@@ -20,6 +20,7 @@ import argparse
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -42,6 +43,16 @@ def _report_proxy(config) -> None:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _mobile_url(url: str) -> str:
+    """Заменяет host avito.ru (в т.ч. www.avito.ru) на m.avito.ru."""
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if host.endswith("avito.ru"):
+        netloc = "m.avito.ru" + (f":{parts.port}" if parts.port else "")
+        return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+    return url
 
 
 def _build_fields(parsed: dict, fallback_url: str) -> dict:
@@ -99,7 +110,8 @@ def main(argv=None):
             continue
 
         # Запрос через общий throttle (задержка min_delay..max_delay, как при парсинге)
-        html = avito.fetch_data(url)
+        fetch_url = _mobile_url(url)
+        html = avito.fetch_data(fetch_url)
         if not html:
             skipped += 1
             print(f"[{index}/{total}] id={ad_id}: запрос не удался — пропуск")
