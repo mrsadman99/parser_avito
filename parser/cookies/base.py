@@ -32,3 +32,10 @@ class CookiesProvider(ABC):
         """
         pass
 
+    def handle_ip_change(self):
+        """
+        Вызывается после смены IP. По умолчанию — ничего (SPFA сам перевыпускает).
+        own_cookies переопределяет: полностью перевыпускает куки под новый IP.
+        """
+        pass
+

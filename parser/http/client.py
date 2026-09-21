@@ -136,6 +136,8 @@ class HttpClient:
                         if self.cookies:
                             self.cookies.handle_block()
                         self.proxy.handle_block()
+                        if self.cookies:
+                            self.cookies.handle_ip_change()
                         self._reset_client()
                         new_ip = self.get_current_ip()
                         if new_ip:

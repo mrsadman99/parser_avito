@@ -82,12 +82,17 @@ class FetchOwnCookiesProvider(CookiesProvider):
         self._save_to_disk()
 
     def handle_block(self):
-        """Вместо разблокировки — получаем куки заново по тому же алгоритму."""
-        logger.warning("🚫 Блокировка с own_cookies — получаю куки с Avito заново")
+        """Блокировка: сбрасываем кэш кук (полный перевыпуск — после смены IP)."""
+        logger.warning("🚫 Блокировка с own_cookies — куки будут перевыпущены после смены IP")
+        self.last_cookies = None
+
+    def handle_ip_change(self):
+        """После смены IP — полностью перевыпускаем куки (GET Avito через новый IP)."""
+        logger.info("🔄 IP изменён — полностью обновляю cookies")
         try:
             self.last_cookies = self._fetch_cookies()
         except Exception as err:
-            logger.error(f"❌ Не удалось перевыпустить свои cookies: {err}")
+            logger.error(f"❌ Не удалось обновить cookies после смены IP: {err}")
             self.last_cookies = None
 
     # ------------------------------ вспомогательное ------------------------------
