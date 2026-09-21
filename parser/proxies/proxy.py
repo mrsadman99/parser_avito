@@ -142,6 +142,8 @@ class OwnMobileProxy(Proxy):
 
     def get_spfa_proxy_string(self):
         host = self.spfa_server or self.host
+        if host and ":" not in host:
+            host = f"{host}:{self.port}"
         auth = f"{self.login}:{self.password}@" if self.login and self.password else ""
         return f"{auth}{host}"
 

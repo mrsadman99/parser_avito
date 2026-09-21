@@ -45,16 +45,16 @@ REMOTE_ENV = (
 
 def _connect(ssh, timeout: int = 15):
     """Открывает SSH-соединение с телефоном (paramiko)."""
+    host = (getattr(ssh, "host", "") or "").strip()
+    if not host:
+        raise ValueError("Не задан ssh.host в [avito.own_mobile_proxy.ssh]")
+
     try:
         import paramiko
     except ImportError as err:
         raise RuntimeError(
             "Для своего мобильного прокси нужен paramiko: pip install paramiko"
         ) from err
-
-    host = (getattr(ssh, "host", "") or "").strip()
-    if not host:
-        raise ValueError("Не задан ssh.host в [avito.own_mobile_proxy.ssh]")
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())

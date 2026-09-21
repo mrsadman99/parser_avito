@@ -13,6 +13,11 @@ run.py запускает всё в фоне и сразу завершаетс�
 
     python run.py          # production: сборка фронта + API + прокси + парсер
     python run.py --dev    # dev: Vite dev-сервер вместо собранного фронта
+    python run.py --keep-proxy  # не останавливать tinyproxy на телефоне перед стартом
+
+Перед запуском run.py завершает сервисы, поднятые предыдущим запуском
+(parser/api/web и, если не указан --keep-proxy, tinyproxy на телефоне), и стартует
+их заново. Отдельная остановка без запуска: python scripts/stop.py.
 
 Порты берутся из config.toml: [avito.server] server_port (REST API + фронт),
 web_server_port (только --dev). Интерфейс — server_host (по умолчанию 127.0.0.1;
@@ -117,10 +122,36 @@ def launch(name: str, cmd: list, detached: bool, cwd: Path = None) -> None:
     print(f"  {name}: tmux-сессия '{name}' (tmux attach -t {name}); лог: logs/{name}.log")
 
 
+def stop_previous(keep_proxy: bool = False) -> None:
+    """Завершает сервисы, запущенные предыдущим run.py, перед новым стартом.
+
+    Останавливает фоновые процессы (logs/*.pid) и tmux-сессии parser/api/web,
+    а также (если не --keep-proxy) tinyproxy на телефоне — чтобы старт был «с нуля».
+    """
+    from scripts.stop import (
+        PID_NAMES,
+        TMUX_SESSIONS,
+        stop_detached,
+        stop_own_proxy,
+        stop_tmux,
+    )
+
+    print("Останавливаю ранее запущенные сервисы...")
+    for name in PID_NAMES:
+        stop_detached(name, dry_run=False)
+    for name in TMUX_SESSIONS:
+        stop_tmux(name, dry_run=False)
+    if not keep_proxy:
+        stop_own_proxy(dry_run=False)
+    print("Старые сервисы остановлены.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Запуск веб-приложения, API и парсера")
     parser.add_argument("--dev", action="store_true",
                         help="Vite dev-сервер вместо собранного фронта")
+    parser.add_argument("--keep-proxy", action="store_true",
+                        help="Не останавливать tinyproxy на телефоне перед стартом")
     args = parser.parse_args()
 
     config = load_avito_config("config.toml")
@@ -135,6 +166,8 @@ def main():
         build_frontend()
 
     print(f"Режим запуска: {'detached (фоновые процессы)' if detached else 'tmux'}")
+
+    stop_previous(keep_proxy=args.keep_proxy)
 
     if args.dev:
         launch(
