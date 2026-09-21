@@ -177,9 +177,13 @@ global airplane_mode_on 1/0` + broadcast); `adb` должен быть в `PATH`
 в `adb_serial` (или подключено одно). После смены IP и при каждом запуске tinyproxy
 на телефоне выполняется `scripts/update_network.sh` (нужен root/`su` на телефоне).
 
-Логи tinyproxy пишутся в файл: в `tinyproxy.conf` принудительно выставляются
-`LogFile "<device_log>"` и `Syslog Off`, а вывод nohup тоже перенаправляется туда.
-Путь по умолчанию — `/data/data/com.termux/files/home/tinyproxy.log` (на телефоне),
+Логи tinyproxy пишутся на телефоне (в `tinyproxy.conf` принудительно выставляются
+`LogFile "<device_log>"` и `Syslog Off`, плюс вывод nohup перенаправляется туда) и
+**стримятся на хост парсера** в `logs/tinyproxy.log` — фоновым процессом
+`scripts/follow_tinyproxy_log.py` (pid в `logs/tinyproxy_follow.pid`, диагностика в
+`logs/tinyproxy_follow.log`). Стрим стартует вместе с прокси и останавливается
+вместе с ним (`run_proxy.py --stop`, `scripts/stop.py`), переподключается при обрыве
+SSH. Путь лога на телефоне по умолчанию — `/data/data/com.termux/files/home/tinyproxy.log`,
 меняется флагом `python scripts/run_proxy.py --device-log <путь>`.
 
 ### Внешний мобильный прокси (`[avito.external_mobile_proxy]`)
@@ -230,6 +234,23 @@ cookies_api_key = ""
 
 `true` — использовать свои cookies из `storage/own_cookies.json` (получаются скриптом `scripts/get_cookies.py`).
 ⚠️ **Взаимоисключает** `use_bypass_api` (фабрика выберет один провайдер).
+
+### `own_cookies` — булево
+
+`true` — свои cookies получаются **напрямую с Avito** по алгоритму `scripts/fetch_cookies.py`:
+curl_cffi (`chrome131_android`) делает `GET https://www.avito.ru/` через мобильный прокси и собирает
+`Set-Cookie`. При блокировке вместо разблокировки/покупки куки просто перевыпускаются тем же GET.
+
+```toml
+own_cookies = false
+```
+
+- Имеет приоритет над `use_bypass_api` и `use_own_cookies` (в фабрике проверяется первым).
+- Куки сохраняются в `storage/own_cookies.json`.
+- Требует, чтобы был задан прокси ([avito.own_mobile_proxy] или [avito.external_mobile_proxy]) —
+  запрос к Avito идёт через него.
+- `own_cookies = false` ничего не меняет: работает прежняя логика (`use_bypass_api` → SPFA,
+  `use_own_cookies` → свой файл).
 
 ### `purchase_cooldown` — целое число (секунды)
 

@@ -80,7 +80,7 @@ def main(argv=None):
     if args.stop:
         return stop_proxy(config)
 
-    code = start_proxy(config, device_log=args.device_log)
+    code = start_proxy(config, device_log=args.device_log, config_path=args.config)
     if code != 0:
         return code
 

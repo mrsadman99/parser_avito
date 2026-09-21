@@ -31,6 +31,8 @@
 Для SSH используется paramiko (pip install paramiko), для режима полёта — adb в PATH.
 """
 import base64
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -40,7 +42,14 @@ from loguru import logger
 
 ROOT = Path(__file__).resolve().parent.parent
 UPDATE_NETWORK_SCRIPT = ROOT / "scripts" / "update_network.sh"
+FOLLOWER_SCRIPT = ROOT / "scripts" / "follow_tinyproxy_log.py"
 
+LOGS_DIR = ROOT / "logs"
+LOCAL_LOG = LOGS_DIR / "tinyproxy.log"          # лог tinyproxy на ХОСТЕ
+FOLLOW_PID = LOGS_DIR / "tinyproxy_follow.pid"
+FOLLOW_LOG = LOGS_DIR / "tinyproxy_follow.log"  # диагностика самого стрима
+
+DEFAULT_CONFIG = "config.toml"
 TERMUX_PREFIX = "/data/data/com.termux/files/usr"
 TERMUX_HOME = "/data/data/com.termux/files/home"
 TINYPROXY_CONF = f"{TERMUX_PREFIX}/etc/tinyproxy/tinyproxy.conf"
@@ -224,10 +233,126 @@ def _restart_tinyproxy(client, device_log: str):
 
 
 # --------------------------------------------------------------------------- #
+# Стрим лога tinyproxy с телефона на хост
+# --------------------------------------------------------------------------- #
+
+def _read_pid(path) -> int | None:
+    try:
+        return int(Path(path).read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _pid_alive(pid) -> bool:
+    if not pid:
+        return False
+    _reap(pid)
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _reap(pid) -> None:
+    """Подбирает zombie-ребёнка (если процесс — наш потомок), иначе no-op."""
+    try:
+        os.waitpid(pid, os.WNOHANG)
+    except (ChildProcessError, OSError):
+        pass
+
+
+def _kill_pid(pid, sig) -> None:
+    try:
+        os.killpg(os.getpgid(pid), sig)
+    except (ProcessLookupError, PermissionError):
+        try:
+            os.kill(pid, sig)
+        except OSError:
+            pass
+
+
+def stream_remote_log(ssh, remote_log: str, local_log: str = str(LOCAL_LOG),
+                      retry_delay: int = 5) -> None:
+    """Бесконечно стримит `remote_log` с телефона в `local_log` (tail -F по SSH).
+
+    Переподключается при обрыве SSH и переживает перезапуски tinyproxy.
+    """
+    Path(local_log).parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        try:
+            client = _connect(ssh)
+        except Exception as err:
+            logger.warning(f"Лог tinyproxy: не подключиться по SSH ({err}); повтор через {retry_delay}с")
+            time.sleep(retry_delay)
+            continue
+        try:
+            channel = client.get_transport().open_session()
+            channel.set_combine_stderr(True)
+            channel.exec_command(REMOTE_ENV + f"tail -n +1 -F {remote_log}")
+            with open(local_log, "ab") as fh:
+                while True:
+                    data = channel.recv(65536)
+                    if not data:
+                        break
+                    fh.write(data)
+                    fh.flush()
+        except Exception as err:
+            logger.warning(f"Лог tinyproxy: обрыв стрима ({err}); повтор через {retry_delay}с")
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+        time.sleep(retry_delay)
+
+
+def _start_log_follower(config_path: str, remote_log: str) -> None:
+    """Запускает фоновый процесс, который пишет лог tinyproxy с телефона в logs/tinyproxy.log."""
+    pid = _read_pid(FOLLOW_PID)
+    if _pid_alive(pid):
+        return
+    if not FOLLOWER_SCRIPT.exists():
+        logger.warning(f"Не найден {FOLLOWER_SCRIPT} — лог tinyproxy на хост не стримится")
+        return
+
+    LOGS_DIR.mkdir(exist_ok=True)
+    cmd = [sys.executable, str(FOLLOWER_SCRIPT),
+           "--config", str(config_path), "--remote-log", remote_log]
+    log = open(FOLLOW_LOG, "a", encoding="utf-8")
+    try:
+        proc = subprocess.Popen(
+            cmd, cwd=ROOT, stdin=subprocess.DEVNULL,
+            stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+        )
+    finally:
+        log.close()
+
+    FOLLOW_PID.write_text(str(proc.pid))
+    logger.info(f"Лог tinyproxy стримится на хост: logs/{LOCAL_LOG.name} (pid {proc.pid})")
+
+
+def _stop_log_follower() -> None:
+    """Останавливает фоновый стрим лога tinyproxy."""
+    pid = _read_pid(FOLLOW_PID)
+    if pid and _pid_alive(pid):
+        _kill_pid(pid, signal.SIGTERM)
+        for _ in range(20):
+            if not _pid_alive(pid):
+                break
+            time.sleep(0.25)
+        if _pid_alive(pid):
+            _kill_pid(pid, signal.SIGKILL)
+            _reap(pid)
+    FOLLOW_PID.unlink(missing_ok=True)
+
+
+# --------------------------------------------------------------------------- #
 # Публичный API
 # --------------------------------------------------------------------------- #
 
-def start_proxy(config, device_log: str = DEFAULT_DEVICE_LOG) -> int:
+def start_proxy(config, device_log: str = DEFAULT_DEVICE_LOG,
+                config_path: str = DEFAULT_CONFIG) -> int:
     """Запускает tinyproxy на телефоне через nohup. Старый процесс останавливается."""
     own = getattr(config, "own_mobile_proxy", None)
     if own is None or not getattr(own, "use", False):
@@ -265,8 +390,9 @@ def start_proxy(config, device_log: str = DEFAULT_DEVICE_LOG) -> int:
         print("❌ Не удалось запустить tinyproxy на телефоне", file=sys.stderr)
         return 1
 
+    _start_log_follower(config_path, device_log)
     print(f"tinyproxy запущен на телефоне (nohup), update_network.sh выполнен. "
-          f"Лог на телефоне: {device_log}")
+          f"Лог на телефоне: {device_log}; стрим на хост: logs/{LOCAL_LOG.name}")
     return 0
 
 
@@ -275,6 +401,8 @@ def stop_proxy(config) -> int:
     own = getattr(config, "own_mobile_proxy", None)
     if own is None or not getattr(own, "use", False):
         return 0
+
+    _stop_log_follower()
 
     ssh = getattr(own, "ssh", None)
     if not (getattr(ssh, "host", "") or "").strip():
@@ -401,11 +529,12 @@ def rotate_ip(adb_serial=None, ssh=None, device_log: str = DEFAULT_DEVICE_LOG) -
     return ok
 
 
-def ensure_own_mobile_proxy(config) -> bool:
+def ensure_own_mobile_proxy(config, config_path: str = DEFAULT_CONFIG) -> bool:
     """Поднимает свой мобильный прокси, если `[avito.own_mobile_proxy].use = true`.
 
-    Если tinyproxy уже работает на телефоне — не трогает его. Иначе запускает через
-    nohup (старый процесс при этом останавливается).
+    Если tinyproxy уже работает на телефоне — не трогает его, но гарантирует, что
+    его лог стримится на хост. Иначе запускает через nohup (старый процесс при этом
+    останавливается).
     Возвращает True, если прокси включён в конфиге, иначе False.
     """
     own = getattr(config, "own_mobile_proxy", None)
@@ -414,7 +543,8 @@ def ensure_own_mobile_proxy(config) -> bool:
 
     if service_running(config):
         logger.info("Свой мобильный прокси уже запущен на телефоне")
+        _start_log_follower(config_path, DEFAULT_DEVICE_LOG)
         return True
 
-    start_proxy(config)
+    start_proxy(config, config_path=config_path)
     return True

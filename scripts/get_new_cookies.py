@@ -107,7 +107,7 @@ def load_config_defaults(config_path: str):
         return {}
 
     from utils.own_mobile_proxy import ensure_own_mobile_proxy
-    ensure_own_mobile_proxy(config)
+    ensure_own_mobile_proxy(config, config_path=config_path)
     proxy_obj = build_proxy(config)
     own_proxy = proxy_obj.get_spfa_proxy_string() if proxy_obj is not None else None
     proxy = own_proxy or (config.external_mobile_proxy.proxy_string or "")

@@ -111,6 +111,7 @@ class AvitoConfig:
     purchase_cooldown: int = 600
     output_dir: Path = Path("result")
     use_own_cookies: bool = False
+    own_cookies: bool = False   # true — свои cookies, получаются GET к Avito через прокси (fetch_cookies)
     parse_phone: bool = False
     retry_delay: int = 5
     timeout: int = 20
