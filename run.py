@@ -169,6 +169,7 @@ def main():
     else:
         print("tmux:      tmux ls;  tmux attach -t api|web|proxy|parser")
     print("run.py завершает работу — процессы продолжают работать в фоне.")
+    print("Остановить всё: python scripts/stop.py")
 
 
 if __name__ == "__main__":
