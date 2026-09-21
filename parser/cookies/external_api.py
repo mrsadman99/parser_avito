@@ -6,6 +6,7 @@ import requests
 from loguru import logger
 
 from parser.cookies.base import CookiesProvider
+from proxy_helpers import build_proxies_dict
 
 API_URL = "https://spfa.pro/api"
 
@@ -25,6 +26,8 @@ class ExternalApiCookiesProvider(CookiesProvider):
             proxy.get_spfa_proxy_string() if proxy is not None else None
         )
         self.proxy = adb_proxy_string or config.mobile_proxy.proxy_string
+        # сами запросы к SPFA шлём через proxy_notifier (payload не меняем)
+        self.request_proxies = build_proxies_dict(config.messengers.proxy_notifier)
         self.purchase_cooldown = config.purchase_cooldown
         self.storage_path = Path(storage_path)
 
@@ -162,6 +165,7 @@ class ExternalApiCookiesProvider(CookiesProvider):
                 },
                 headers=self.headers,
                 timeout=30,
+                proxies=self.request_proxies,
             )
         except requests.RequestException as e:
             logger.error(
@@ -224,6 +228,7 @@ class ExternalApiCookiesProvider(CookiesProvider):
                 },
                 headers=self.headers,
                 timeout=30,
+                proxies=self.request_proxies,
             )
         except requests.RequestException as e:
             logger.error(f"❌ Не удалось связаться с сервисом cookies | ошибка={e}")
