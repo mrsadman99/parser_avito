@@ -55,6 +55,17 @@ REMOTE_ENV = (
 # SSH (paramiko)
 # --------------------------------------------------------------------------- #
 
+def proxy_address(own) -> str:
+    """Адрес прокси: {server}:{port}; если server пуст — {ssh.host}:{port}."""
+    host = (getattr(own, "server", "") or "").strip()
+    if not host:
+        host = (getattr(getattr(own, "ssh", None), "host", "") or "").strip()
+    port = int(getattr(own, "port", 0) or 8888)
+    if host and ":" not in host:
+        host = f"{host}:{port}"
+    return host or f"127.0.0.1:{port}"
+
+
 def _connect(ssh, timeout: int = 15):
     """Открывает SSH-соединение с телефоном (paramiko)."""
     host = (getattr(ssh, "host", "") or "").strip()
@@ -127,9 +138,8 @@ def run_foreground(config) -> int:
 
     port = int(getattr(ssh, "port", 0) or 8022)
     user = (getattr(ssh, "user", "") or "").strip() or "?"
-    proxy_port = int(getattr(own, "port", 0) or 8888)
     print(f"SSH: {user}@{host}:{port} → tinyproxy -d (tmux на хосте)")
-    print(f"Прокси для парсера: {host}:{proxy_port}")
+    print(f"Прокси для парсера: {proxy_address(own)}")
 
     try:
         client = _connect(ssh)

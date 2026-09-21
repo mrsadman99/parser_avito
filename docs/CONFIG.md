@@ -147,8 +147,10 @@ tmux-сессия `proxy` (или фоновый процесс при `detached
 (`login:password@{server}:{port}`) уходит в SPFA в поле `proxy` тела запроса, а сам
 запрос к SPFA выполняется через `[avito.messengers].proxy_notifier`.
 
-Запуск/остановка: `python run.py`, `python scripts/start_own_proxy.py [--stop]`,
-`python scripts/stop.py` (без `--keep-proxy`).
+Запуск/остановка:
+- только прокси: `python scripts/run_proxy.py [--verify|--foreground|--stop]`;
+- вместе с сервисами: `python run.py` / `python scripts/start_own_proxy.py [--stop]`;
+- всё остановить: `python scripts/stop.py` (без `--keep-proxy`).
 
 ```toml
 [avito.own_mobile_proxy]
