@@ -127,7 +127,7 @@ def _remote_start_command(device_log: str) -> str:
     """Команда на телефоне: остановить старый tinyproxy и запустить новый через nohup."""
     return (
         REMOTE_ENV
-        + "pkill -x tinyproxy 2>/dev/null; sleep 1; "
+        + 'pkill -f "[t]inyproxy" 2>/dev/null; sleep 1; '
         + f"nohup {TERMUX_PREFIX}/bin/tinyproxy -d -c {TINYPROXY_CONF} "
         + f">> {device_log} 2>&1 < /dev/null & "
         + 'echo "started pid $!"'
@@ -135,12 +135,16 @@ def _remote_start_command(device_log: str) -> str:
 
 
 def _remote_stop_command() -> str:
-    """Команда на телефоне: остановить tinyproxy (nohup-процесс), при необходимости SIGKILL."""
+    """Команда на телефоне: остановить tinyproxy через `pkill -f tinyproxy` (+ SIGKILL при нужде).
+
+    Шаблон `[t]inyproxy` — это тот же `pkill -f tinyproxy`, но он не совпадает с
+    собственной командной строкой шелла (иначе pkill убил бы и сам процесс-исполнитель).
+    """
     return (
         REMOTE_ENV
-        + "pkill -x tinyproxy 2>/dev/null; sleep 1; "
-        + "if pgrep -x tinyproxy >/dev/null 2>&1; then pkill -9 -x tinyproxy 2>/dev/null; sleep 1; fi; "
-        + "if pgrep -x tinyproxy >/dev/null 2>&1; then echo 'stop-failed'; else echo 'stopped'; fi"
+        + 'pkill -f "[t]inyproxy" 2>/dev/null; sleep 1; '
+        + 'if pgrep -f "[t]inyproxy" >/dev/null 2>&1; then pkill -9 -f "[t]inyproxy" 2>/dev/null; sleep 1; fi; '
+        + 'if pgrep -f "[t]inyproxy" >/dev/null 2>&1; then echo "stop-failed"; else echo "stopped"; fi'
     )
 
 
