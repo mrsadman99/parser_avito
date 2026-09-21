@@ -148,6 +148,52 @@ class SQLiteDBHandler:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    # Поля, которые можно перезаписывать из detail-страницы
+    _REFRESH_FIELDS = (
+        "price", "scanned_at", "description", "source_url", "title", "ad_url",
+        "sort_time", "seller_rating", "seller_reviews", "photo_url",
+        "has_delivery", "city",
+    )
+
+    def list_ads_for_refresh(self, only_missing: bool = False) -> list[dict]:
+        """Уникальные объявления (по id) для обновления из detail-страниц."""
+        where = "WHERE id IS NOT NULL"
+        if only_missing:
+            where += " AND (city IS NULL OR has_delivery IS NULL)"
+        with sqlite3.connect(self.db_name) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                f"""
+                SELECT id, MAX(ad_url) AS ad_url, MAX(source_url) AS source_url
+                FROM viewed
+                {where}
+                GROUP BY id
+                ORDER BY id
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_ad(self, ad_id, fields: dict) -> int:
+        """Обновляет поля объявления (все строки с этим id); чужие колонки игнорирует."""
+        cols = [col for col in fields if col in self._REFRESH_FIELDS]
+        if not cols:
+            return 0
+        assignments = ", ".join(f"{col} = ?" for col in cols)
+        values = [fields[col] for col in cols]
+        with sqlite3.connect(self.db_name) as conn:
+            cursor = conn.execute(
+                f"UPDATE viewed SET {assignments} WHERE id = ?", values + [ad_id]
+            )
+            conn.commit()
+            return cursor.rowcount
+
+    def delete_ad(self, ad_id) -> int:
+        """Удаляет объявление (все строки с этим id)."""
+        with sqlite3.connect(self.db_name) as conn:
+            cursor = conn.execute("DELETE FROM viewed WHERE id = ?", (ad_id,))
+            conn.commit()
+            return cursor.rowcount
+
     def record_exists(self, record_id, price):
         """Проверяет, существует ли запись с заданными id и price."""
         with sqlite3.connect(self.db_name) as conn:
