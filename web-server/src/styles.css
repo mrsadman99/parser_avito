@@ -285,6 +285,82 @@ header {
   margin: 0;
 }
 
+.ads-filters .drp {
+  position: relative;
+}
+
+.drp-toggle {
+  width: auto;
+  white-space: nowrap;
+}
+
+.drp-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  gap: 14px;
+  padding: 12px;
+  background: #1b1f27;
+  border: 1px solid #333a45;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.drp-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 170px;
+}
+
+.drp-presets button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: #c9d1e0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.drp-presets button:hover {
+  background: #2a3140;
+  color: #fff;
+}
+
+.drp-dates {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drp-dates label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #9aa4b2;
+}
+
+.drp-dates input[type="date"] {
+  width: 165px;
+  margin: 0;
+}
+
+.drp-actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.drp-actions button {
+  width: auto;
+}
+
 .tag-input {
   background: #171a21;
   border: 1px solid #333a45;

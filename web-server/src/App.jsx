@@ -32,15 +32,111 @@ const SORT_FIELDS = {
   city: { label: 'Расположение', key: (a) => a.city ?? '' },
 }
 
-const ADS_FILTERS_EMPTY = { deliveryOnly: false, city: '', periodMode: 'all', periodN: '' }
+const ADS_FILTERS_EMPTY = { deliveryOnly: false, city: '', dateFrom: '', dateTo: '' }
 
-function periodCutoff({ periodMode, periodN }) {
-  const n = Number(periodN) || 0
-  const HOUR = 60 * 60 * 1000
-  if (periodMode === 'week') return Date.now() - 7 * 24 * HOUR
-  if (periodMode === 'days' && n > 0) return Date.now() - n * 24 * HOUR
-  if (periodMode === 'hours' && n > 0) return Date.now() - n * HOUR
-  return 0
+function isoDate(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function daysAgo(n) {
+  const d = new Date()
+  d.setDate(d.getDate() - n)
+  return d
+}
+
+const DATE_PRESETS = [
+  { label: 'Всё время', value: () => ({ from: '', to: '' }) },
+  { label: 'Сегодня', value: () => ({ from: isoDate(new Date()), to: isoDate(new Date()) }) },
+  { label: 'Вчера', value: () => ({ from: isoDate(daysAgo(1)), to: isoDate(daysAgo(1)) }) },
+  { label: 'Последние 7 дней', value: () => ({ from: isoDate(daysAgo(6)), to: isoDate(new Date()) }) },
+  { label: 'Последние 30 дней', value: () => ({ from: isoDate(daysAgo(29)), to: isoDate(new Date()) }) },
+  {
+    label: 'Этот месяц',
+    value: () => {
+      const d = new Date()
+      return { from: isoDate(new Date(d.getFullYear(), d.getMonth(), 1)), to: isoDate(d) }
+    },
+  },
+  {
+    label: 'Прошлый месяц',
+    value: () => {
+      const d = new Date()
+      return {
+        from: isoDate(new Date(d.getFullYear(), d.getMonth() - 1, 1)),
+        to: isoDate(new Date(d.getFullYear(), d.getMonth(), 0)),
+      }
+    },
+  },
+]
+
+function rangeBounds({ dateFrom, dateTo }) {
+  const from = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : 0
+  const to = dateTo ? new Date(`${dateTo}T23:59:59.999`).getTime() : 0
+  return { from, to }
+}
+
+function DateRangePicker({ from, to, onChange }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return undefined
+    function onDocClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [open])
+
+  const label = from || to ? `${from || '…'} — ${to || '…'}` : 'Публикация: любая дата'
+
+  return (
+    <div className="drp" ref={ref}>
+      <button type="button" className="drp-toggle" onClick={() => setOpen((v) => !v)}>
+        {label} ▾
+      </button>
+      {open && (
+        <div className="drp-panel">
+          <div className="drp-presets">
+            {DATE_PRESETS.map((p) => (
+              <button
+                type="button"
+                key={p.label}
+                onClick={() => { onChange(p.value()); setOpen(false) }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className="drp-dates">
+            <label>С
+              <input
+                type="date"
+                value={from}
+                max={to || undefined}
+                onChange={(e) => onChange({ from: e.target.value, to })}
+              />
+            </label>
+            <label>По
+              <input
+                type="date"
+                value={to}
+                min={from || undefined}
+                onChange={(e) => onChange({ from, to: e.target.value })}
+              />
+            </label>
+          </div>
+          <div className="drp-actions">
+            <button type="button" onClick={() => { onChange({ from: '', to: '' }); setOpen(false) }}>Сбросить</button>
+            <button type="button" onClick={() => setOpen(false)}>Готово</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function toLinkForm(link) {
@@ -353,11 +449,12 @@ export default function App() {
     }
   }
 
-  const cutoff = periodCutoff(adsFilters)
+  const { from: dateFromTs, to: dateToTs } = rangeBounds(adsFilters)
   const filteredAds = ads.filter((ad) => {
     if (adsFilters.deliveryOnly && !ad.has_delivery) return false
     if (adsFilters.city && !String(ad.city || '').toLowerCase().includes(adsFilters.city.toLowerCase())) return false
-    if (cutoff && !(ad.sort_time && ad.sort_time >= cutoff)) return false
+    if (dateFromTs && !(ad.sort_time && ad.sort_time >= dateFromTs)) return false
+    if (dateToTs && !(ad.sort_time && ad.sort_time <= dateToTs)) return false
     return true
   })
 
@@ -426,25 +523,11 @@ export default function App() {
                 <option value="">Локация: все</option>
                 {RUSSIAN_CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
-              <select
-                value={adsFilters.periodMode}
-                onChange={(e) => setAdsFilters({ ...adsFilters, periodMode: e.target.value })}
-              >
-                <option value="all">Публикация: всё время</option>
-                <option value="week">Публикация: за неделю</option>
-                <option value="days">Публикация: за N дней</option>
-                <option value="hours">Публикация: за N часов</option>
-              </select>
-              {(adsFilters.periodMode === 'days' || adsFilters.periodMode === 'hours') && (
-                <input
-                  type="number"
-                  min="1"
-                  className="period-n"
-                  placeholder={adsFilters.periodMode === 'days' ? 'дней' : 'часов'}
-                  value={adsFilters.periodN}
-                  onChange={(e) => setAdsFilters({ ...adsFilters, periodN: e.target.value })}
-                />
-              )}
+              <DateRangePicker
+                from={adsFilters.dateFrom}
+                to={adsFilters.dateTo}
+                onChange={(r) => setAdsFilters({ ...adsFilters, dateFrom: r.from, dateTo: r.to })}
+              />
               <button type="button" onClick={() => setAdsFilters(ADS_FILTERS_EMPTY)}>Сбросить</button>
             </div>
 
