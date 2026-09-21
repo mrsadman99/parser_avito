@@ -128,13 +128,23 @@ def stop_tmux(name: str, dry_run: bool) -> None:
 
 
 def stop_own_proxy(dry_run: bool) -> None:
-    """Остановка своего мобильного прокси: tinyproxy на телефоне (nohup, по SSH)."""
+    """Остановка своего мобильного прокси: tinyproxy на телефоне (nohup, по SSH).
+
+    Чистит процесс даже если [avito.own_mobile_proxy].use = false — достаточно
+    заданного ssh.host (чтобы не оставался запущенный tinyproxy).
+    """
     try:
         config = load_avito_config("config.toml")
     except Exception as err:
         print(f"  ⚠️ Не удалось прочитать config.toml: {err}")
         return
-    if not getattr(getattr(config, "own_mobile_proxy", None), "use", False):
+
+    own = getattr(config, "own_mobile_proxy", None)
+    use = getattr(own, "use", False)
+    ssh_host = (getattr(getattr(own, "ssh", None), "host", "") or "").strip()
+    if not ssh_host:
+        if use:
+            print("  proxy: ssh.host не задан — не могу остановить tinyproxy на телефоне")
         return
 
     if dry_run:
@@ -144,7 +154,7 @@ def stop_own_proxy(dry_run: bool) -> None:
     from utils.own_mobile_proxy import stop_proxy
 
     print("  proxy: останавливаю tinyproxy (nohup) на телефоне...")
-    if stop_proxy(config) == 0:
+    if stop_proxy(config, force=True) == 0:
         print("  proxy: tinyproxy остановлен")
     else:
         print("  proxy: ⚠️ не удалось остановить tinyproxy")

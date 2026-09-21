@@ -396,18 +396,24 @@ def start_proxy(config, device_log: str = DEFAULT_DEVICE_LOG,
     return 0
 
 
-def stop_proxy(config) -> int:
-    """Останавливает tinyproxy на телефоне по SSH. Возвращает код выхода."""
-    own = getattr(config, "own_mobile_proxy", None)
-    if own is None or not getattr(own, "use", False):
-        return 0
+def stop_proxy(config, force: bool = False) -> int:
+    """Останавливает tinyproxy на телефоне по SSH. Возвращает код выхода.
 
-    _stop_log_follower()
+    force=True — останавливать даже если `[avito.own_mobile_proxy].use = false`
+    (очистка оставшихся процессов; нужен заданный ssh.host).
+    """
+    own = getattr(config, "own_mobile_proxy", None)
+    if own is None:
+        return 0
+    if not getattr(own, "use", False) and not force:
+        return 0
 
     ssh = getattr(own, "ssh", None)
     if not (getattr(ssh, "host", "") or "").strip():
         print("⚠️ Не задан ssh.host — не могу остановить tinyproxy на телефоне", file=sys.stderr)
-        return 1
+        return 1 if force else 0
+
+    _stop_log_follower()
 
     try:
         client = _connect(ssh)
