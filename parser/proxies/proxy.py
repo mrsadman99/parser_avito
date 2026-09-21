@@ -127,14 +127,14 @@ class OwnMobileProxy(Proxy):
     Адрес прокси собирается из `server` (own_mobile_proxy.server) и `port`
     (own_mobile_proxy.port): {server}:{port}. Если `server` пуст — берётся ssh.host.
     Трафик идёт: Camoufox -> http://{server}:{port} -> tinyproxy на телефоне
-    -> мобильная сеть. Смена IP — airplane mode на телефоне по SSH.
+    -> мобильная сеть. Смена IP — режим полёта через adb (adb_serial).
     """
 
-    def __init__(self, ssh, server=None, port=8888, rotate_ip=True, login=None,
-                 password=None):
-        self.ssh = ssh
+    def __init__(self, adb_serial=None, server=None, port=8888, rotate_ip=True,
+                 login=None, password=None, ssh_host=None):
+        self.adb_serial = adb_serial
         self.port = int(port or 8888)
-        host = (server or "").strip() or (getattr(ssh, "host", "") or "").strip()
+        host = (server or "").strip() or (ssh_host or "").strip()
         if host and ":" not in host:
             host = f"{host}:{self.port}"
         self.host = host or f"127.0.0.1:{self.port}"
@@ -163,4 +163,4 @@ class OwnMobileProxy(Proxy):
             logger.warning("Смена IP своего мобильного прокси отключена (rotate_ip = false)")
             return False
         from utils.own_mobile_proxy import rotate_ip
-        return rotate_ip(self.ssh)
+        return rotate_ip(self.adb_serial)

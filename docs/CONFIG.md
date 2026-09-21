@@ -156,7 +156,8 @@ tinyproxy, запущенный на телефоне (Termux), — трафик
 [avito.own_mobile_proxy]
 use = true          # true — трафик через свой мобильный прокси
 port = 8888         # порт tinyproxy на телефоне
-rotate_ip = true    # смена IP (airplane mode) при блокировках
+rotate_ip = true    # смена IP через adb (airplane mode) при блокировках
+adb_serial = ""     # серийник устройства для adb (пусто — adb без -s)
 login = ""          # опционально: логин HTTP (tinyproxy BasicAuth)
 password = ""       # опционально: пароль HTTP (tinyproxy BasicAuth)
 server = ""         # адрес прокси (host или host:port) для парсера и SPFA; пусто = ssh.host
@@ -170,8 +171,9 @@ password = "***"        # пароль SSH
 
 Требуется `paramiko` (`pip install -r requirements.txt`) и на телефоне:
 `pkg install tinyproxy openssh`, затем `sshd`. Смена IP (`rotate_ip`) выполняется
-переводом телефона в **режим полёта и обратно** (`settings put global
-airplane_mode_on` + broadcast) и требует root/`tsu` на телефоне.
+**через adb**: телефон переводится в режим полёта и обратно (`adb shell settings put
+global airplane_mode_on 1/0` + broadcast); `adb` должен быть в `PATH`, устройство —
+в `adb_serial` (или подключено одно).
 
 ### Внешний мобильный прокси (`[avito.external_mobile_proxy]`)
 

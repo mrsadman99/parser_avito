@@ -51,10 +51,11 @@ class SshConfig:
 
 @dataclass
 class OwnMobileProxyConfig:
-    """Свой мобильный прокси: tinyproxy на телефоне, запуск/остановка по SSH (без adb)."""
+    """Свой мобильный прокси: tinyproxy на телефоне (SSH), смена IP — режим полёта через adb."""
     use: bool = False
     port: int = 8888             # порт tinyproxy на телефоне
-    rotate_ip: bool = True       # смена IP (airplane mode) при блокировке
+    rotate_ip: bool = True       # смена IP через adb (airplane mode) при блокировке
+    adb_serial: str = ""         # серийник для adb (пусто — adb без -s)
     login: str = ""
     password: str = ""
     server: str = ""             # адрес прокси (host или host:port) для парсера и SPFA; пусто = ssh.host

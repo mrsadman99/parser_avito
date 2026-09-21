@@ -5,6 +5,9 @@
 При каждом запуске старый tinyproxy сначала останавливается (`pkill -x tinyproxy`),
 затем запускается новый.
 
+Смена IP — перевод телефона в режим полёта и обратно **через adb**
+(`adb shell settings put global airplane_mode_on …`).
+
 Порты НЕ пробрасываются (никакого `adb forward`): адрес прокси собирается из
 `own_mobile_proxy.server` и `own_mobile_proxy.port` (пусто = `ssh.host`), парсер
 обращается туда напрямую.
@@ -14,6 +17,7 @@
     [avito.own_mobile_proxy]
     use = true
     port = 8888
+    adb_serial = ""          # серийник для adb (пусто — adb без -s)
 
     [avito.own_mobile_proxy.ssh]
     host = "192.168.1.50"
@@ -21,9 +25,11 @@
     user = "u0_a123"
     password = "..."
 
-Для SSH используется paramiko (pip install paramiko).
+Для SSH используется paramiko (pip install paramiko), для режима полёта — adb в PATH.
 """
+import subprocess
 import sys
+import time
 
 from loguru import logger
 
@@ -217,54 +223,49 @@ def service_running(config) -> bool:
     return "running" in out
 
 
-def _remote_rotate_script() -> str:
-    """Режим полёта: включить → подождать → выключить → подождать.
-
-    Требует root: `su -c` или `tsu -c` (иначе печатает `no-root`).
-    """
-    return REMOTE_ENV + (
-        'SUDO=""; '
-        'if command -v tsu >/dev/null 2>&1; then SUDO="tsu -c"; '
-        'elif command -v su >/dev/null 2>&1; then SUDO="su -c"; '
-        'else echo "no-root"; fi; '
-        '_as_root() { if [ -n "$SUDO" ]; then $SUDO "$1"; else sh -c "$1" 2>/dev/null; fi; }; '
-        'echo "airplane-on"; '
-        '_as_root "settings put global airplane_mode_on 1"; '
-        '_as_root "am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true"; '
-        f"sleep {AIRPLANE_ON_SLEEP}; "
-        'echo "airplane-off"; '
-        '_as_root "settings put global airplane_mode_on 0"; '
-        '_as_root "am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false"; '
-        f"sleep {AIRPLANE_OFF_SLEEP}; "
-        'echo "rotated"'
-    )
-
-
-def rotate_ip(ssh) -> bool:
-    """Меняет IP своего прокси: телефон в режим полёта и обратно (по SSH)."""
+def _adb(adb_serial, *args, timeout: int = 30):
+    """Выполняет команду adb (с -s adb_serial, если задан). Возвращает CompletedProcess или None."""
+    cmd = ["adb"] + (["-s", str(adb_serial)] if adb_serial else []) + list(args)
     try:
-        client = _connect(ssh)
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        logger.warning("adb не найден в PATH — смена IP недоступна")
+        return None
     except Exception as err:
-        logger.warning(f"Не удалось подключиться по SSH для смены IP: {err}")
+        logger.warning(f"Ошибка adb {list(args)}: {err}")
+        return None
+
+
+def rotate_ip(adb_serial=None) -> bool:
+    """Меняет IP своего прокси: режим полёта через adb (включить → выключить)."""
+    device = f"adb -s {adb_serial}" if adb_serial else "adb"
+
+    state = _adb(adb_serial, "get-state")
+    if state is None or state.returncode != 0:
+        err = (state.stderr.strip() if state is not None else "adb недоступен")
+        logger.warning(f"Смена IP: устройство не найдено ({device}): {err}")
         return False
 
-    logger.info("🔄 Смена IP: телефон → режим полёта → обычный режим...")
-    try:
-        code, out, err = _run_remote(client, _remote_rotate_script(), timeout=180)
-    except Exception as err:
-        logger.warning(f"Ошибка смены IP по SSH: {err}")
+    logger.info(f"🔄 Смена IP через {device}: включаю режим полёта...")
+    on = _adb(adb_serial, "shell", "settings", "put", "global", "airplane_mode_on", "1")
+    if on is None or on.returncode != 0:
+        logger.warning(f"Не удалось включить режим полёта: {(on.stderr.strip() if on else 'adb недоступен')}")
         return False
-    finally:
-        client.close()
+    _adb(adb_serial, "shell", "am", "broadcast",
+         "-a", "android.intent.action.AIRPLANE_MODE", "--ez", "state", "true")
+    time.sleep(AIRPLANE_ON_SLEEP)
 
-    if "no-root" in out:
-        logger.warning("Смена IP недоступна: на телефоне нет tsu/su (нужен root)")
+    logger.info("🔄 Возвращаю обычный режим...")
+    off = _adb(adb_serial, "shell", "settings", "put", "global", "airplane_mode_on", "0")
+    if off is None or off.returncode != 0:
+        logger.warning(f"Не удалось выключить режим полёта: {(off.stderr.strip() if off else 'adb недоступен')}")
         return False
-    if code == 0 and "rotated" in out:
-        logger.success("IP обновлён: режим полёта выключен, сеть восстановлена")
-        return True
-    logger.warning(f"Не удалось сменить IP на телефоне (код {code}): {err}")
-    return False
+    _adb(adb_serial, "shell", "am", "broadcast",
+         "-a", "android.intent.action.AIRPLANE_MODE", "--ez", "state", "false")
+    time.sleep(AIRPLANE_OFF_SLEEP)
+
+    logger.success("IP обновлён: режим полёта выключен, сеть восстановлена")
+    return True
 
 
 def ensure_own_mobile_proxy(config) -> bool:

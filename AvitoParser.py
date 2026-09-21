@@ -77,6 +77,7 @@ def main(page: ft.Page):
         use_own_mobile_proxy.value = config.own_mobile_proxy.use
         own_proxy_port.value = str(config.own_mobile_proxy.port)
         own_rotate_ip.value = config.own_mobile_proxy.rotate_ip
+        own_adb_serial.value = config.own_mobile_proxy.adb_serial or ""
         own_proxy_login.value = config.own_mobile_proxy.login or ""
         own_proxy_password.value = config.own_mobile_proxy.password or ""
         own_proxy_server.value = config.own_mobile_proxy.server or ""
@@ -148,6 +149,7 @@ def main(page: ft.Page):
                 "use": use_own_mobile_proxy.value,
                 "port": to_int_safe(own_proxy_port.value, 8888),
                 "rotate_ip": own_rotate_ip.value,
+                "adb_serial": own_adb_serial.value or "",
                 "login": own_proxy_login.value or "",
                 "password": own_proxy_password.value or "",
                 "server": own_proxy_server.value or "",
@@ -600,10 +602,12 @@ def main(page: ft.Page):
 
     # Свой мобильный прокси (tinyproxy на телефоне по SSH)
     use_own_mobile_proxy = ft.Checkbox("Свой мобильный прокси (tinyproxy на телефоне по SSH)", value=False,
-                                       tooltip="tinyproxy запускается на телефоне в tmux по SSH; "
+                                       tooltip="tinyproxy запускается на телефоне по SSH через nohup; "
                                                "порты не пробрасываются, парсер ходит на ip:порт телефона")
     own_proxy_port = ft.TextField(label="Порт tinyproxy на телефоне", value="8888", width=180, text_size=12, height=40)
-    own_rotate_ip = ft.Checkbox("Смена IP (airplane mode)", value=True)
+    own_rotate_ip = ft.Checkbox("Смена IP (airplane mode через adb)", value=True)
+    own_adb_serial = ft.TextField(label="Серийник устройства (adb)", value="", width=200, text_size=12, height=40,
+                                  tooltip="adb -s SERIAL. Пусто — adb без -s (одно подключённое устройство)")
     own_proxy_login = ft.TextField(label="Логин HTTP", value="", width=150, text_size=12, height=40)
     own_proxy_password = ft.TextField(label="Пароль HTTP", value="", password=True,
                                       can_reveal_password=True, width=150, text_size=12, height=40)
@@ -735,7 +739,7 @@ def main(page: ft.Page):
                                             ft.Row([camoufox_os, camoufox_headless, camoufox_humanize, camoufox_geoip]),
                                             ft.Divider(),
                                             use_own_mobile_proxy,
-                                            ft.Row([own_proxy_port, own_rotate_ip]),
+                                            ft.Row([own_proxy_port, own_rotate_ip, own_adb_serial]),
                                             ft.Row([own_proxy_login, own_proxy_password]),
                                             own_proxy_server,
                                             ft.Row([ssh_host, ssh_port]),

@@ -103,6 +103,7 @@ def _migrate_legacy(avito: dict, flat: dict) -> None:
             use=avito.get("use_adb_proxy", False),
             port=avito.get("own_mobile_proxy_port", avito.get("adb_remote_port", 8888)),
             rotate_ip=avito.get("adb_rotate_ip", True),
+            adb_serial=avito.get("adb_device_serial", ""),
             login=avito.get("adb_proxy_login", ""),
             password=avito.get("adb_proxy_password", ""),
             server=avito.get("adb_proxy_server", ""),

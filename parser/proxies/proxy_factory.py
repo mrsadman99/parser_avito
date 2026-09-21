@@ -15,12 +15,13 @@ def build_proxy(config: AvitoConfig) -> Proxy:
     if config.own_mobile_proxy.use:
         logger.info("Прокси определён как свой мобильный (tinyproxy на телефоне по SSH)")
         return OwnMobileProxy(
-            ssh=config.own_mobile_proxy.ssh,
+            adb_serial=config.own_mobile_proxy.adb_serial or None,
             server=config.own_mobile_proxy.server or None,
             port=config.own_mobile_proxy.port,
             rotate_ip=config.own_mobile_proxy.rotate_ip,
             login=config.own_mobile_proxy.login or None,
             password=config.own_mobile_proxy.password or None,
+            ssh_host=config.own_mobile_proxy.ssh.host or None,
         )
 
     change_urls = []
