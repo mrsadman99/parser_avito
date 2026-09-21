@@ -20,6 +20,8 @@ _MIGRATION_COLUMNS = {
     "seller_rating": "REAL",
     "seller_reviews": "INTEGER",
     "photo_url": "TEXT",
+    "has_delivery": "INTEGER",
+    "city": "TEXT",
 }
 
 
@@ -61,7 +63,9 @@ class SQLiteDBHandler:
                     sort_time INTEGER,
                     seller_rating REAL,
                     seller_reviews INTEGER,
-                    photo_url TEXT
+                    photo_url TEXT,
+                    has_delivery INTEGER,
+                    city TEXT
                 )
                 """
             )
@@ -117,6 +121,8 @@ class SQLiteDBHandler:
                 ad.seller_rating,
                 ad.seller_reviews,
                 ad.main_image_url(),
+                1 if ad.has_delivery() else 0,
+                ad.city(),
             )
             for ad in ads
         ]
@@ -126,8 +132,8 @@ class SQLiteDBHandler:
             cursor.executemany(
                 """
                 INSERT OR REPLACE INTO viewed
-                    (id, price, scanned_at, description, source_url, title, ad_url, sort_time, seller_rating, seller_reviews, photo_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, price, scanned_at, description, source_url, title, ad_url, sort_time, seller_rating, seller_reviews, photo_url, has_delivery, city)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 records,
             )

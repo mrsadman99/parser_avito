@@ -175,6 +175,29 @@ class Item(BaseModel):
 
         return str(root[max(root.keys(), key=area)])
 
+    def has_delivery(self) -> bool:
+        """Есть ли на объявлении информация об Авито Доставке."""
+        for steps in (self.iva or {}).values():
+            for step in steps:
+                payload = step.payload or {}
+                if step.componentData.component == "delivery" and payload.get("text"):
+                    return True
+        return False
+
+    def city(self) -> str | None:
+        """Город/локация объявления (человекочитаемо)."""
+        if self.location and (self.location.name or "").strip():
+            return self.location.name.strip()
+        if self.addressDetailed and (self.addressDetailed.locationName or "").strip():
+            return self.addressDetailed.locationName.strip()
+        # запасной вариант: в gallery.imageAlt город идёт после последней запятой
+        alt = getattr(self.gallery, "imageAlt", None) if self.gallery else None
+        if alt and "," in alt:
+            candidate = alt.rsplit(",", 1)[-1].strip()
+            if candidate and len(candidate) <= 40 and not any(ch.isdigit() for ch in candidate):
+                return candidate
+        return None
+
 
 class ItemsResponse(BaseModel):
     items: List[Item]

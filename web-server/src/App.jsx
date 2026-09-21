@@ -28,6 +28,19 @@ const SORT_FIELDS = {
   sort_time: { label: 'Публикация', key: (a) => a.sort_time ?? 0 },
   seller_reviews: { label: 'Оценок', key: (a) => a.seller_reviews ?? 0 },
   seller_rating: { label: 'Рейтинг', key: (a) => a.seller_rating ?? 0 },
+  has_delivery: { label: 'Доставка', key: (a) => a.has_delivery ?? 0 },
+  city: { label: 'Расположение', key: (a) => a.city ?? '' },
+}
+
+const ADS_FILTERS_EMPTY = { deliveryOnly: false, city: '', periodMode: 'all', periodN: '' }
+
+function periodCutoff({ periodMode, periodN }) {
+  const n = Number(periodN) || 0
+  const HOUR = 60 * 60 * 1000
+  if (periodMode === 'week') return Date.now() - 7 * 24 * HOUR
+  if (periodMode === 'days' && n > 0) return Date.now() - n * 24 * HOUR
+  if (periodMode === 'hours' && n > 0) return Date.now() - n * HOUR
+  return 0
 }
 
 function toLinkForm(link) {
@@ -223,6 +236,7 @@ export default function App() {
   const [view, setView] = useState('links')
   const [selectedLink, setSelectedLink] = useState(null)
   const [ads, setAds] = useState([])
+  const [adsFilters, setAdsFilters] = useState(ADS_FILTERS_EMPTY)
   const [sortKey, setSortKey] = useState('scanned_at')
   const [sortDesc, setSortDesc] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -316,6 +330,7 @@ export default function App() {
     setError('')
     setSelectedLink(link)
     setView('ads')
+    setAdsFilters(ADS_FILTERS_EMPTY)
     try {
       setAds(await api(`/api/ads?url=${encodeURIComponent(link.url)}`, { token }))
     } catch (err) {
@@ -327,6 +342,7 @@ export default function App() {
     setView('links')
     setSelectedLink(null)
     setAds([])
+    setAdsFilters(ADS_FILTERS_EMPTY)
   }
 
   function toggleSort(key) {
@@ -337,7 +353,15 @@ export default function App() {
     }
   }
 
-  const sortedAds = [...ads].sort((a, b) => {
+  const cutoff = periodCutoff(adsFilters)
+  const filteredAds = ads.filter((ad) => {
+    if (adsFilters.deliveryOnly && !ad.has_delivery) return false
+    if (adsFilters.city && !String(ad.city || '').toLowerCase().includes(adsFilters.city.toLowerCase())) return false
+    if (cutoff && !(ad.sort_time && ad.sort_time >= cutoff)) return false
+    return true
+  })
+
+  const sortedAds = [...filteredAds].sort((a, b) => {
     const f = SORT_FIELDS[sortKey].key
     const va = f(a)
     const vb = f(b)
@@ -382,37 +406,85 @@ export default function App() {
         </div>
         {error && <div className="error">{error}</div>}
 
-        {sortedAds.length === 0 ? (
+        {ads.length === 0 ? (
           <p className="hint">По этой ссылке пока нет запарсенных объявлений.</p>
         ) : (
-          <table className="ads-table">
-            <thead>
-              <tr>
-                <th>Фото</th>
-                <th>Название</th>
-                <th className="sortable" onClick={() => toggleSort('price')}>Цена{arrow('price')}</th>
-                <th>Ссылка</th>
-                <th className="sortable" onClick={() => toggleSort('scanned_at')}>Время парсинга{arrow('scanned_at')}</th>
-                <th className="sortable" onClick={() => toggleSort('sort_time')}>Публикация{arrow('sort_time')}</th>
-                <th className="sortable" onClick={() => toggleSort('seller_rating')}>Рейтинг{arrow('seller_rating')}</th>
-                <th className="sortable" onClick={() => toggleSort('seller_reviews')}>Оценок{arrow('seller_reviews')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedAds.map((ad) => (
-                <tr key={`${ad.id}:${ad.price}`}>
-                  <td>{ad.photo_url ? <img className="ad-thumb" src={ad.photo_url} alt="" /> : ''}</td>
-                  <td>{ad.title}</td>
-                  <td>{ad.price}</td>
-                  <td><a href={ad.ad_url} target="_blank" rel="noreferrer">открыть</a></td>
-                  <td>{fmtScan(ad.scanned_at)}</td>
-                  <td>{fmtMs(ad.sort_time)}</td>
-                  <td>{ad.seller_rating ?? ''}</td>
-                  <td>{ad.seller_reviews ?? ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <>
+            <div className="ads-filters">
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={adsFilters.deliveryOnly}
+                  onChange={(e) => setAdsFilters({ ...adsFilters, deliveryOnly: e.target.checked })}
+                />
+                Только с доставкой
+              </label>
+              <select
+                value={adsFilters.city}
+                onChange={(e) => setAdsFilters({ ...adsFilters, city: e.target.value })}
+              >
+                <option value="">Локация: все</option>
+                {RUSSIAN_CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select
+                value={adsFilters.periodMode}
+                onChange={(e) => setAdsFilters({ ...adsFilters, periodMode: e.target.value })}
+              >
+                <option value="all">Публикация: всё время</option>
+                <option value="week">Публикация: за неделю</option>
+                <option value="days">Публикация: за N дней</option>
+                <option value="hours">Публикация: за N часов</option>
+              </select>
+              {(adsFilters.periodMode === 'days' || adsFilters.periodMode === 'hours') && (
+                <input
+                  type="number"
+                  min="1"
+                  className="period-n"
+                  placeholder={adsFilters.periodMode === 'days' ? 'дней' : 'часов'}
+                  value={adsFilters.periodN}
+                  onChange={(e) => setAdsFilters({ ...adsFilters, periodN: e.target.value })}
+                />
+              )}
+              <button type="button" onClick={() => setAdsFilters(ADS_FILTERS_EMPTY)}>Сбросить</button>
+            </div>
+
+            {sortedAds.length === 0 ? (
+              <p className="hint">Нет объявлений по заданным фильтрам.</p>
+            ) : (
+              <table className="ads-table">
+                <thead>
+                  <tr>
+                    <th>Фото</th>
+                    <th>Название</th>
+                    <th className="sortable" onClick={() => toggleSort('price')}>Цена{arrow('price')}</th>
+                    <th className="sortable" onClick={() => toggleSort('has_delivery')}>Доставка{arrow('has_delivery')}</th>
+                    <th className="sortable" onClick={() => toggleSort('city')}>Расположение{arrow('city')}</th>
+                    <th>Ссылка</th>
+                    <th className="sortable" onClick={() => toggleSort('scanned_at')}>Время парсинга{arrow('scanned_at')}</th>
+                    <th className="sortable" onClick={() => toggleSort('sort_time')}>Публикация{arrow('sort_time')}</th>
+                    <th className="sortable" onClick={() => toggleSort('seller_rating')}>Рейтинг{arrow('seller_rating')}</th>
+                    <th className="sortable" onClick={() => toggleSort('seller_reviews')}>Оценок{arrow('seller_reviews')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedAds.map((ad) => (
+                    <tr key={`${ad.id}:${ad.price}`}>
+                      <td>{ad.photo_url ? <img className="ad-thumb" src={ad.photo_url} alt="" /> : ''}</td>
+                      <td>{ad.title}</td>
+                      <td>{ad.price}</td>
+                      <td>{ad.has_delivery ? 'Да' : '—'}</td>
+                      <td>{ad.city || '—'}</td>
+                      <td><a href={ad.ad_url} target="_blank" rel="noreferrer">открыть</a></td>
+                      <td>{fmtScan(ad.scanned_at)}</td>
+                      <td>{fmtMs(ad.sort_time)}</td>
+                      <td>{ad.seller_rating ?? ''}</td>
+                      <td>{ad.seller_reviews ?? ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
         )}
       </div>
     )

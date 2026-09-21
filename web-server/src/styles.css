@@ -248,6 +248,43 @@ header {
   display: block;
 }
 
+.ads-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.ads-filters select,
+.ads-filters input.period-n {
+  width: auto;
+  margin-bottom: 0;
+}
+
+.ads-filters input.period-n {
+  width: 90px;
+}
+
+.ads-filters button {
+  width: auto;
+}
+
+.ads-filters .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #c9d1e0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ads-filters .check input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
 .tag-input {
   background: #171a21;
   border: 1px solid #333a45;
