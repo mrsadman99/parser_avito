@@ -127,7 +127,7 @@ def _remote_start_command(device_log: str) -> str:
     """Команда на телефоне: остановить старый tinyproxy и запустить новый через nohup."""
     return (
         REMOTE_ENV
-        + 'pkill -f "[t]inyproxy" 2>/dev/null; sleep 1; '
+        + "pkill -x tinyproxy 2>/dev/null; sleep 1; "
         + f"nohup {TERMUX_PREFIX}/bin/tinyproxy -d -c {TINYPROXY_CONF} "
         + f">> {device_log} 2>&1 < /dev/null & "
         + 'echo "started pid $!"'
@@ -135,17 +135,13 @@ def _remote_start_command(device_log: str) -> str:
 
 
 def _remote_stop_command() -> str:
-    """Команда на телефоне: остановить tinyproxy через `pkill -f tinyproxy` (+ SIGKILL при нужде).
+    """Остановка tinyproxy на телефоне: pkill -f tinyproxy (по полной командной строке)."""
+    return REMOTE_ENV + "pkill -f tinyproxy"
 
-    Шаблон `[t]inyproxy` — это тот же `pkill -f tinyproxy`, но он не совпадает с
-    собственной командной строкой шелла (иначе pkill убил бы и сам процесс-исполнитель).
-    """
-    return (
-        REMOTE_ENV
-        + 'pkill -f "[t]inyproxy" 2>/dev/null; sleep 1; '
-        + 'if pgrep -f "[t]inyproxy" >/dev/null 2>&1; then pkill -9 -f "[t]inyproxy" 2>/dev/null; sleep 1; fi; '
-        + 'if pgrep -f "[t]inyproxy" >/dev/null 2>&1; then echo "stop-failed"; else echo "stopped"; fi'
-    )
+
+def _remote_kill_command() -> str:
+    """Принудительная остановка: pkill -9 -f tinyproxy."""
+    return REMOTE_ENV + "pkill -9 -f tinyproxy"
 
 
 def _remote_status_command() -> str:
@@ -426,19 +422,31 @@ def stop_proxy(config, force: bool = False) -> int:
         return 1
 
     try:
-        code, out, err = _run_remote(client, _remote_stop_command())
+        _run_remote(client, _remote_stop_command())
+        _, out, _ = _run_remote(client, _remote_status_command())
     except Exception as err:
         print(f"⚠️ Ошибка остановки по SSH: {err}", file=sys.stderr)
         return 1
     finally:
         client.close()
 
-    if out:
-        print(f"    {out}")
-    if "stop-failed" in out:
+    if "running" in out:
+        print("  proxy: tinyproxy не остановился, пробую SIGKILL...")
+        try:
+            client2 = _connect(ssh)
+            try:
+                _run_remote(client2, _remote_kill_command())
+                _, out, _ = _run_remote(client2, _remote_status_command())
+            finally:
+                client2.close()
+        except Exception as err:
+            print(f"  ⚠️ SIGKILL не удался: {err}", file=sys.stderr)
+
+    if "running" in out:
         print("  ⚠️ tinyproxy всё ещё запущен на телефоне", file=sys.stderr)
         return 1
-    return 0 if code == 0 else 1
+    print("    tinyproxy остановлен (pkill -f tinyproxy)")
+    return 0
 
 
 def service_running(config) -> bool:
