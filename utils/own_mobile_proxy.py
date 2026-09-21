@@ -126,8 +126,13 @@ def _remote_start_command(device_log: str) -> str:
 
 
 def _remote_stop_command() -> str:
-    """Команда на телефоне: остановить tinyproxy."""
-    return REMOTE_ENV + "pkill -x tinyproxy 2>/dev/null; echo stopped"
+    """Команда на телефоне: остановить tinyproxy (nohup-процесс), при необходимости SIGKILL."""
+    return (
+        REMOTE_ENV
+        + "pkill -x tinyproxy 2>/dev/null; sleep 1; "
+        + "if pgrep -x tinyproxy >/dev/null 2>&1; then pkill -9 -x tinyproxy 2>/dev/null; sleep 1; fi; "
+        + "if pgrep -x tinyproxy >/dev/null 2>&1; then echo 'stop-failed'; else echo 'stopped'; fi"
+    )
 
 
 def _remote_status_command() -> str:
@@ -171,10 +176,46 @@ def _update_network(client) -> bool:
     return True
 
 
+def _ensure_logfile(client, device_log: str) -> bool:
+    """Прописывает LogFile/Syslog в tinyproxy.conf, чтобы tinyproxy писал логи в файл.
+
+    Без этого при `-d` сообщения могут уходить в syslog, а не в перенаправленный
+    вывод nohup. Ставим `LogFile "<device_log>"` и `Syslog Off`.
+    """
+    log_dir = device_log.rsplit("/", 1)[0] if "/" in device_log else TERMUX_HOME
+    sed_logfile = (
+        'sed -i -E "s|^[[:space:]]*#?[[:space:]]*LogFile[[:space:]].*|'
+        f'LogFile \\"{device_log}\\"|" {TINYPROXY_CONF}'
+    )
+    sed_syslog = (
+        'sed -i -E "s|^[[:space:]]*#?[[:space:]]*Syslog[[:space:]].*|Syslog Off|" '
+        f'{TINYPROXY_CONF}'
+    )
+    command = (
+        REMOTE_ENV
+        + f'mkdir -p "{log_dir}"; '
+        + f'if grep -qE "^[[:space:]]*#?[[:space:]]*LogFile[[:space:]]" {TINYPROXY_CONF}; '
+        + f"then {sed_logfile}; else echo 'LogFile \"{device_log}\"' >> {TINYPROXY_CONF}; fi; "
+        + f'if grep -qE "^[[:space:]]*#?[[:space:]]*Syslog[[:space:]]" {TINYPROXY_CONF}; '
+        + f'then {sed_syslog}; else echo "Syslog Off" >> {TINYPROXY_CONF}; fi; '
+        + 'echo "logfile-ok"'
+    )
+    try:
+        code, out, err = _run_remote(client, command)
+    except Exception as err:
+        logger.warning(f"Не удалось настроить LogFile для tinyproxy: {err}")
+        return False
+    if code != 0:
+        logger.warning(f"Не удалось настроить LogFile для tinyproxy (код {code}): {err}")
+        return False
+    return True
+
+
 def _restart_tinyproxy(client, device_log: str):
-    """Стоп tinyproxy → update_network.sh → старт tinyproxy. Возвращает (ok, output)."""
+    """Стоп tinyproxy → update_network.sh → LogFile → старт tinyproxy. Возвращает (ok, output)."""
     _run_remote(client, _remote_stop_command())
     _update_network(client)
+    _ensure_logfile(client, device_log)
     code, out, err = _run_remote(client, _remote_start_command(device_log))
     if code != 0:
         logger.warning(f"Не удалось запустить tinyproxy (код {code}): {err}")
@@ -256,6 +297,9 @@ def stop_proxy(config) -> int:
 
     if out:
         print(f"    {out}")
+    if "stop-failed" in out:
+        print("  ⚠️ tinyproxy всё ещё запущен на телефоне", file=sys.stderr)
+        return 1
     return 0 if code == 0 else 1
 
 

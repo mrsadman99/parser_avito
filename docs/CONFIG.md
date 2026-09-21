@@ -177,6 +177,11 @@ global airplane_mode_on 1/0` + broadcast); `adb` должен быть в `PATH`
 в `adb_serial` (или подключено одно). После смены IP и при каждом запуске tinyproxy
 на телефоне выполняется `scripts/update_network.sh` (нужен root/`su` на телефоне).
 
+Логи tinyproxy пишутся в файл: в `tinyproxy.conf` принудительно выставляются
+`LogFile "<device_log>"` и `Syslog Off`, а вывод nohup тоже перенаправляется туда.
+Путь по умолчанию — `/data/data/com.termux/files/home/tinyproxy.log` (на телефоне),
+меняется флагом `python scripts/run_proxy.py --device-log <путь>`.
+
 ### Внешний мобильный прокси (`[avito.external_mobile_proxy]`)
 
 Платный мобильный прокси (например, mobileproxy.rent). Если `proxy_string` задан

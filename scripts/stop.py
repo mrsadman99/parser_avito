@@ -138,13 +138,16 @@ def stop_own_proxy(dry_run: bool) -> None:
         return
 
     if dry_run:
-        print("  proxy: tinyproxy на телефоне будет остановлен (nohup-процесс)")
+        print("  proxy: tinyproxy (nohup) на телефоне будет остановлен")
         return
 
     from utils.own_mobile_proxy import stop_proxy
 
-    print("  proxy: останавливаю tinyproxy на телефоне...")
-    stop_proxy(config)
+    print("  proxy: останавливаю tinyproxy (nohup) на телефоне...")
+    if stop_proxy(config) == 0:
+        print("  proxy: tinyproxy остановлен")
+    else:
+        print("  proxy: ⚠️ не удалось остановить tinyproxy")
 
 
 def main(argv=None):
@@ -154,7 +157,7 @@ def main(argv=None):
     parser.add_argument("--dry-run", action="store_true",
                         help="Только показать, что будет остановлено")
     parser.add_argument("--keep-proxy", action="store_true",
-                        help="Не останавливать прокси (хост + телефон)")
+                        help="Не останавливать tinyproxy на телефоне")
     args = parser.parse_args(argv)
 
     print("Фоновые процессы (logs/*.pid):")
