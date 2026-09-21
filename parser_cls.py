@@ -25,6 +25,7 @@ from parser.http.camoufox_client import CamoufoxClient
 from parser.proxies.proxy_factory import build_proxy
 from parser.url_converter import AvitoUrlConverter
 from utils.parse_phone import ParsePhone
+from utils.adb_proxy import ensure_adb_proxy
 from version import VERSION
 from lang import SPFA_PROXY_REQUIRED
 
@@ -65,6 +66,7 @@ class AvitoParse:
     ):
         self.config = config
         self.links_provider = links_provider
+        ensure_adb_proxy(self.config)
         self.proxy = build_proxy(self.config)
         self.cookies_provider = build_cookies_provider(config=config, proxy=self.proxy)
         self.db_handler = SQLiteDBHandler()

@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 from load_config import load_avito_config
+from utils.adb_proxy import ensure_adb_proxy
 
 ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "web-server"
@@ -105,18 +106,6 @@ def launch(name: str, cmd: list, detached: bool, cwd: Path = None) -> None:
     print(f"  {name}: tmux-сессия '{name}' (tmux attach -t {name})")
 
 
-def start_adb_proxy(config) -> None:
-    """Запускает прокси на телефоне (detached или tmux решает сам скрипт)."""
-    if not getattr(config.adb_proxy, "use", False):
-        return
-    script = ROOT / "scripts" / "start_adb_proxy.py"
-    if not script.exists():
-        print(f"  proxy: ADB-прокси включён, но не найден {script}")
-        return
-    print("  proxy: запускаю scripts/start_adb_proxy.py...")
-    subprocess.run([sys.executable, str(script), "--no-attach"], check=False)
-
-
 def main():
     parser = argparse.ArgumentParser(description="Запуск веб-приложения, API и парсера")
     parser.add_argument("--dev", action="store_true",
@@ -150,7 +139,7 @@ def main():
         detached=detached, cwd=ROOT,
     )
 
-    start_adb_proxy(config)
+    ensure_adb_proxy(config)
 
     launch(
         "parser",

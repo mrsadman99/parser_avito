@@ -105,6 +105,8 @@ def load_config_defaults(config_path: str):
         print(f"⚠️ Не удалось загрузить {config_path}: {err}", file=sys.stderr)
         return {}
 
+    from utils.adb_proxy import ensure_adb_proxy
+    ensure_adb_proxy(config, config_path=config_path)
     proxy_obj = build_proxy(config)
     adb_proxy = proxy_obj.get_spfa_proxy_string() if proxy_obj is not None else None
     proxy = adb_proxy or (config.mobile_proxy.proxy_string or "")
