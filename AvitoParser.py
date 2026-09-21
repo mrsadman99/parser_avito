@@ -1,7 +1,5 @@
-import asyncio
 import threading
 import time
-import os
 from pathlib import Path
 
 import flet as ft
@@ -12,7 +10,6 @@ from integrations.notifications.factory import build_notifier
 from lang import *
 from load_config import save_avito_config, load_avito_config
 from parser_cls import AvitoParse
-from utils import prompt_user_login
 from version import VERSION
 
 
@@ -58,11 +55,10 @@ def main(page: ft.Page):
         max_delay.value = str(config.max_delay)
         seller_black_list.value = "\n".join(config.seller_black_list or [])
         max_count_of_retry.value = config.max_count_of_retry or 5
-        use_webdriver.value = config.use_webdriver
         use_bypass_api.value = config.use_bypass_api
         cookies_api_key.value = config.cookies_api_key
         purchase_cooldown.value = str(config.purchase_cooldown)
-        use_own_account.value = config.use_own_cookies
+        own_cookies.value = config.own_cookies
         parse_phone.value = config.parse_phone
         proxy_notifier.value = config.messengers.proxy_notifier
         retry_delay.value = config.retry_delay
@@ -177,11 +173,10 @@ def main(page: ft.Page):
             "min_delay": to_float_safe(min_delay.value, 1.0),
             "max_delay": to_float_safe(max_delay.value, 3.0),
             "max_count_of_retry": to_int_safe(max_count_of_retry.value, 5),
-            "use_webdriver": use_webdriver.value,
             "use_bypass_api": use_bypass_api.value,
             "cookies_api_key": cookies_api_key.value,
             "purchase_cooldown": to_int_safe(purchase_cooldown.value, 600),
-            "use_own_cookies": use_own_account.value,
+            "own_cookies": own_cookies.value,
             "parse_phone": parse_phone.value,
             "retry_delay": to_int_safe(retry_delay.value, 5),
             "timeout": to_int_safe(timeout.value, 20),
@@ -281,29 +276,10 @@ def main(page: ft.Page):
         dlg_modal_proxy.open = True
         page.update()
 
-    def on_click_use_own_cookies(e):
-        cookies_exist = os.path.exists("storage/own_cookies.json")
-
-        account_login_btn.text = (
-            "Cookies уже есть" if cookies_exist else
-            "Войти в аккаунт (обязательно)" if use_own_account.value else
-            "Войти в аккаунт (опционально)"
-        )
-        page.update()
-
-    async def btn_prompt_user_login_handler(e):
-        await prompt_user_login.wrapper()
-        page.update()
-        await asyncio.sleep(2)
-        on_click_use_own_cookies(None)
-        logger.info("update")
-
-
     def start_parser(e):
         nonlocal is_run
         result_proxy = check_string()
-        result_own_cookies = check_own_cookies()
-        if not result_proxy or not result_own_cookies:
+        if not result_proxy:
             return
         logger.info("Старт")
         stop_event.clear()
@@ -326,22 +302,6 @@ def main(page: ft.Page):
         start_btn.text = "Останавливаюсь..."
         start_btn.disabled = True
         page.update()
-
-    def check_own_cookies():
-        if use_own_account.value and not os.path.exists("storage/own_cookies.json"):
-            dlg_modal = ft.AlertDialog(
-                modal=True,
-                title=ft.Text("Не найден cookies"),
-                content=ft.Text(NOT_FOUND_OWN_COOKIES),
-                actions=[
-                    ft.TextButton("Понятно", on_click=lambda e: page.close(dlg_modal)),
-                ],
-                actions_alignment=ft.MainAxisAlignment.END,
-                on_dismiss=lambda e: print("Окно закрыто"),
-            )
-            page.open(dlg_modal)
-            return False
-        return True
 
     def check_string():
         if use_bypass_api.value and not (proxy.value or "").strip():
@@ -497,35 +457,14 @@ def main(page: ft.Page):
         tooltip="Минимальное время между покупками новых cookies через spfa.pro (чтобы не сжечь баланс)",
     )
     use_bypass_api = ft.Checkbox("Использовать spfa сервис", value=False)
+    own_cookies = ft.Checkbox("Свои cookies (curl_cffi, без SPFA)", value=False,
+                              tooltip="Получать cookies напрямую с Avito через прокси (curl_cffi). "
+                                      "Приоритетнее spfa; блокировка = перевыпуск кук")
     bypass_api_key_help_icon = ft.IconButton(
         icon=ft.icons.HELP_OUTLINE,
         tooltip="api-key:\n\n"
                 "• Зарегистрируйтесь на spfa.pro, чтобы его получить\n"
                 "• Данный ключ поможет в обходе блокировок\n",
-        icon_size=20,
-    )
-
-    use_own_account = ft.Checkbox("Использовать свой аккаунт", value=False, on_change=on_click_use_own_cookies)
-
-    if os.path.exists("storage/own_cookies.json"):
-        btn_text = "🔐 Cookies уже есть (если нужно заменить - кликни)"
-    else:
-        if use_own_account.value:
-            btn_text = "🔐 Войти в аккаунт (опционально)"
-        else:
-            btn_text = "🔐 Войти в аккаунт (обязательно)"
-
-    account_login_btn = ft.ElevatedButton(
-        text=btn_text,
-        icon=ft.icons.LOGIN,
-        on_click=btn_prompt_user_login_handler, expand=True,
-        tooltip=PROMPT_USER_LOGIN_HELP
-    )
-    account_login_btn_help_icon = ft.IconButton(
-        icon=ft.icons.HELP_OUTLINE,
-        tooltip="Можно использовать свой аккаунт:\n\n"
-                "• Такой способ будет стабильно работать\n"
-                "• Есть риск блокировки этого аккаунта\n",
         icon_size=20,
     )
 
@@ -673,6 +612,7 @@ def main(page: ft.Page):
                                     ft.Container(
                                         content=ft.Column([
                                             ft.Row([use_bypass_api, cookies_api_key, bypass_api_key_help_icon]),
+                                            own_cookies,
                                             purchase_cooldown,
                                         ]),
                                         margin=ft.margin.only(left=25, top=5),
@@ -696,26 +636,6 @@ def main(page: ft.Page):
                                         content=ft.Column([
                                             ft.Row([proxy, proxy_change_ip, proxy_help_icon]),
                                         ]),
-                                        margin=ft.margin.only(left=25, top=5),
-                                    ),
-                                ]),
-                                padding=10,
-                                border=ft.border.all(1, ft.colors.GREY_700),
-                                border_radius=8,
-                                margin=ft.margin.only(bottom=8),
-                                ink=True,
-                            ),
-
-                            # Карточка 3: Свой аккаунт
-                            ft.Container(
-                                content=ft.Column([
-                                    ft.Row([
-                                        ft.Icon(ft.icons.PERSON, color=ft.colors.PURPLE_400),
-                                        ft.Text("Свой аккаунт", size=14, weight=ft.FontWeight.W_500),
-                                    ]),
-                                    ft.Container(
-                                        content=ft.Row(
-                                            [use_own_account, account_login_btn, account_login_btn_help_icon]),
                                         margin=ft.margin.only(left=25, top=5),
                                     ),
                                 ]),
@@ -789,9 +709,6 @@ def main(page: ft.Page):
             ),
         ]
     )
-
-    use_webdriver = ft.Checkbox(label="Использовать браузер", value=True,
-                            tooltip=USE_WEBDRIVER_HELP)
 
 
     other_btn = ft.Row(

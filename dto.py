@@ -105,12 +105,10 @@ class AvitoConfig:
     min_delay: float = 1.0      # мин. задержка между запросами к Avito, сек
     max_delay: float = 3.0      # макс. задержка между запросами к Avito, сек
     max_count_of_retry: int = 5
-    use_webdriver: bool = True
     use_bypass_api: bool = False
     cookies_api_key: str = None
     purchase_cooldown: int = 600
     output_dir: Path = Path("result")
-    use_own_cookies: bool = False
     own_cookies: bool = False   # true — свои cookies, получаются GET к Avito через прокси (fetch_cookies)
     parse_phone: bool = False
     retry_delay: int = 5

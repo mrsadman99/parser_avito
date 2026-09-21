@@ -18,11 +18,9 @@ count = 1                            # сколько страниц объяв�
 seller_black_list = []               # чёрный список продавцов
 
 # --- Обход блокировок (SPFA / cookies) ---
-use_webdriver = true                 # использовать браузер (Playwright)
 use_bypass_api = false               # true — использовать SPFA (spfa.pro)
 cookies_api_key = ""                 # API-ключ SPFA
-use_own_cookies = false              # true — свои cookies (scripts/get_cookies_cli.py)
-own_cookies = false                 # true — свои cookies: GET Avito через прокси (curl_cffi), блокировка = перевыпуск
+own_cookies = false                  # true — свои cookies: GET Avito через прокси (curl_cffi), блокировка = перевыпуск
 purchase_cooldown = 600              # пауза между покупками cookies SPFA, сек
 parse_phone = false                  # парсить телефоны (функция пока не активна)
 

@@ -1,8 +1,5 @@
 # Avito Parser — зависимости для запуска
 # Python 3.11+ | Установка: pip install -r requirements.txt
-#
-# После установки для работы со своими cookies / WebDriver выполните:
-#   python -m playwright install chromium
 
 # --- HTTP / парсинг ---
 curl_cffi==0.16.0            # HTTP-клиент парсера (имитация отпечатка браузера)
@@ -14,10 +11,6 @@ paramiko==3.5.1              # SSH к телефону (свой мобильн�
 
 # --- GUI ---
 flet==0.24.1                 # графический интерфейс (AvitoParser.py)
-
-# --- Свои cookies / WebDriver ---
-playwright==1.52.0
-playwright-stealth==2.0.0
 
 # --- Camoufox (антидетект-браузер для запросов к поиску) ---
 camoufox[geoip]==0.5.5       # браузер скачается автоматически при первом запуске

@@ -210,10 +210,6 @@ change_urls = [
 Приоритет: если `[avito.own_mobile_proxy].use = true`, используется свой мобильный
 прокси, а внешний игнорируется.
 
-### `use_webdriver` — булево
-
-Использовать WebDriver/Playwright (для получения собственных cookies через `scripts/get_cookies.py`).
-
 ### `use_bypass_api` — булево
 
 `true` — использовать сторонний сервис cookies **SPFA (spfa.pro)**: покупка и разблокировка cookies при блокировках.
@@ -230,11 +226,6 @@ API-ключ сервиса SPFA. Нужен при `use_bypass_api = true` (и 
 cookies_api_key = ""
 ```
 
-### `use_own_cookies` — булево
-
-`true` — использовать свои cookies из `storage/own_cookies.json` (получаются скриптом `scripts/get_cookies.py`).
-⚠️ **Взаимоисключает** `use_bypass_api` (фабрика выберет один провайдер).
-
 ### `own_cookies` — булево
 
 `true` — свои cookies получаются **напрямую с Avito** по алгоритму `scripts/fetch_cookies.py`:
@@ -245,12 +236,11 @@ curl_cffi (`chrome131_android`) делает `GET https://www.avito.ru/` чер�
 own_cookies = false
 ```
 
-- Имеет приоритет над `use_bypass_api` и `use_own_cookies` (в фабрике проверяется первым).
+- Имеет приоритет над `use_bypass_api` (в фабрике проверяется первым).
 - Куки сохраняются в `storage/own_cookies.json`.
 - Требует, чтобы был задан прокси ([avito.own_mobile_proxy] или [avito.external_mobile_proxy]) —
   запрос к Avito идёт через него.
-- `own_cookies = false` ничего не меняет: работает прежняя логика (`use_bypass_api` → SPFA,
-  `use_own_cookies` → свой файл).
+- `own_cookies = false` ничего не меняет: работает прежняя логика (`use_bypass_api` → SPFA).
 
 ### `purchase_cooldown` — целое число (секунды)
 

@@ -28,8 +28,6 @@ COPY requirements.txt /app/requirements.txt
 WORKDIR /app
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-RUN python -m playwright install chromium-headless-shell
-
 COPY . /app
 COPY entrypoint.sh /
 

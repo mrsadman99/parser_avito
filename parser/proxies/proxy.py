@@ -17,7 +17,7 @@ class Proxy(ABC):
         pass
 
     def get_playwright_proxy(self) -> dict | None:
-        """Return a Playwright/Camoufox proxy dict ({server, username, password}) or None."""
+        """Return a Camoufox proxy dict ({server, username, password}) or None."""
         return None
 
     def get_spfa_proxy_string(self) -> str | None:
