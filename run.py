@@ -103,7 +103,15 @@ def launch(name: str, cmd: list, detached: bool, cwd: Path = None) -> None:
     if result.returncode != 0:
         print(f"  {name}: ошибка tmux: {result.stderr.strip()}")
         return
-    print(f"  {name}: tmux-сессия '{name}' (tmux attach -t {name})")
+
+    # Пишем вывод tmux-сессии в logs/<name>.log (как в detached-режиме)
+    LOGS_DIR.mkdir(exist_ok=True)
+    log_path = LOGS_DIR / f"{name}.log"
+    subprocess.run(
+        ["tmux", "pipe-pane", "-t", name, f"cat >> '{log_path}'"],
+        check=False,
+    )
+    print(f"  {name}: tmux-сессия '{name}' (tmux attach -t {name}); лог: logs/{name}.log")
 
 
 def main():

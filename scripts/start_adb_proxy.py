@@ -14,12 +14,14 @@
     python scripts/start_adb_proxy.py --serial emulator-5554
     python scripts/start_adb_proxy.py --detached
     python scripts/start_adb_proxy.py --device-log /sdcard/tinyproxy.log
+    python scripts/start_adb_proxy.py --log logs/proxy.log
     python scripts/start_adb_proxy.py --no-attach
 """
 import argparse
 import shlex
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -32,6 +34,8 @@ TERMUX_HOME = "/data/data/com.termux/files/home"
 TERMUX_BASH = f"{TERMUX_PREFIX}/bin/bash"
 TINYPROXY_CONF = f"{TERMUX_PREFIX}/etc/tinyproxy/tinyproxy.conf"
 DEFAULT_DEVICE_LOG = "/sdcard/tinyproxy.log"
+ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_LOG = "logs/proxy.log"
 
 
 def load_settings(config_path: str = "config.toml"):
@@ -48,6 +52,22 @@ def load_settings(config_path: str = "config.toml"):
     serial = (config.adb_proxy.device_serial or "").strip()
     detached = bool(getattr(config, "detached_mode", False))
     return serial, detached
+
+
+def _now() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _append_log(log_path: Path, text: str) -> None:
+    """Дописывает текст в локальный лог-файл."""
+    if not text:
+        return
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as file:
+            file.write(text.rstrip() + "\n")
+    except OSError as err:
+        print(f"⚠️ Не удалось записать лог {log_path}: {err}", file=sys.stderr)
 
 
 def build_device_script(device_log: str, background: bool) -> str:
@@ -85,7 +105,7 @@ def _adb_prefix(serial: str) -> str:
     return f"adb -s '{serial}'" if serial else "adb"
 
 
-def run_detached(serial: str, device_log: str) -> int:
+def run_detached(serial: str, device_log: str, log_path: Path) -> int:
     """detached: run-as → Termux bash → nohup tinyproxy -d & (без tmux)."""
     cmd = _adb_base(serial) + ["shell", build_device_command(device_log, background=True)]
 
@@ -93,22 +113,25 @@ def run_detached(serial: str, device_log: str) -> int:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
     except FileNotFoundError:
+        _append_log(log_path, f"[{_now()}] ❌ adb не найден в PATH")
         print("❌ adb не найден в PATH", file=sys.stderr)
         return 1
 
     out = (result.stdout or "").strip()
+    err = (result.stderr or "").strip()
+    _append_log(log_path, f"[{_now()}] detached (run-as):\n{out}\n{err}")
     if out:
         print(out)
     if result.returncode == 0:
         print("tinyproxy запущен в Termux (detached, background).")
-        print(f"Лог: {_adb_prefix(serial)} shell \"tail -n 50 -f {device_log}\"")
+        print(f"Лог устройства: {_adb_prefix(serial)} shell \"tail -n 50 -f {device_log}\"")
+        print(f"Локальный лог: {log_path}")
         return 0
-    print(f"❌ Ошибка adb (код {result.returncode}): {(result.stderr or '').strip()}",
-          file=sys.stderr)
+    print(f"❌ Ошибка adb (код {result.returncode}): {err}", file=sys.stderr)
     return 1
 
 
-def run_attached(serial: str, device_log: str, attach: bool) -> int:
+def run_attached(serial: str, device_log: str, log_path: Path, attach: bool) -> int:
     """attached: run-as → Termux bash → tinyproxy -d в foreground (вывод в tmux)."""
     cmd = _adb_base(serial) + ["shell", build_device_command(device_log, background=False)]
     shell_cmd = " ".join(shlex.quote(c) for c in cmd)
@@ -131,6 +154,11 @@ def run_attached(serial: str, device_log: str, attach: bool) -> int:
         if result.returncode != 0:
             print(f"❌ Ошибка создания tmux-сессии: {result.stderr}", file=sys.stderr)
             return 1
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["tmux", "pipe-pane", "-t", SESSION_NAME, f"cat >> '{log_path}'"],
+            check=False,
+        )
     else:
         print(f"tmux-сессия '{SESSION_NAME}' уже существует.")
 
@@ -139,6 +167,7 @@ def run_attached(serial: str, device_log: str, attach: bool) -> int:
         return subprocess.run(["tmux", "attach", "-t", SESSION_NAME]).returncode
 
     print(f"Подключиться: tmux attach -t {SESSION_NAME}")
+    print(f"Лог: {log_path}")
     return 0
 
 
@@ -156,6 +185,8 @@ def main(argv=None):
                         help="Не прикрепляться к tmux (для запуска из run.py)")
     parser.add_argument("--device-log", default=DEFAULT_DEVICE_LOG,
                         help=f"Файл лога на устройстве (по умолчанию {DEFAULT_DEVICE_LOG})")
+    parser.add_argument("--log", default=DEFAULT_LOG,
+                        help=f"Локальный лог-файл (по умолчанию {DEFAULT_LOG})")
     args = parser.parse_args(argv)
 
     default_serial, detached = load_settings(args.config)
@@ -163,16 +194,20 @@ def main(argv=None):
     if args.detached:
         detached = True
 
+    log_path = Path(args.log)
+    if not log_path.is_absolute():
+        log_path = ROOT / log_path
+
     if serial:
         print(f"Устройство (adb -s): {serial}")
     else:
         print("device_serial не задан — использую adb без -s")
 
     if detached:
-        return run_detached(serial, args.device_log)
+        return run_detached(serial, args.device_log, log_path)
 
     attach = not args.no_attach and sys.stdin.isatty() and sys.stdout.isatty()
-    return run_attached(serial, args.device_log, attach)
+    return run_attached(serial, args.device_log, log_path, attach)
 
 
 if __name__ == "__main__":
