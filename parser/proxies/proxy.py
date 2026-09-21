@@ -65,14 +65,18 @@ class ExternalMobileProxy(Proxy):
         return build_proxies_dict(self.change_ip_proxy)
 
     def handle_block(self):
-        # делаем запрос на смену IP: перебираем все ссылки по очереди,
-        # каждая с повторами и через proxy_notifier, если он задан
+        """Смена IP внешнего мобильного прокси: перебираем change_urls по порядку,
+        пока запрос не выполнится успешно (успех = 200 и непустой `new_ip`)."""
+        if not self.change_ip_urls:
+            logger.warning("Смена IP недоступна: не задан change_urls")
+            return False
+
         params = {"format": "json"}
         proxies = self._change_ip_proxies()
         if proxies:
             logger.info(f"Смена IP через прокси {self.change_ip_proxy}")
 
-        last_err = None
+        total = len(self.change_ip_urls)
         for url_index, change_ip_url in enumerate(self.change_ip_urls, start=1):
             for attempt in range(1, self.CHANGE_IP_RETRIES + 1):
                 try:
@@ -84,29 +88,36 @@ class ExternalMobileProxy(Proxy):
                         headers={"User-Agent": BROWSER_USER_AGENT},
                     )
                     if res.status_code == 200:
-                        new_ip = res.json().get("new_ip")
-                        logger.success(
-                            f"новый IP {new_ip} (ссылка смены #{url_index})"
+                        try:
+                            new_ip = res.json().get("new_ip")
+                        except ValueError:
+                            new_ip = None
+                        if new_ip:
+                            logger.success(
+                                f"новый IP {new_ip} (ссылка смены {url_index}/{total})"
+                            )
+                            return True
+                        logger.warning(
+                            f"[ссылка {url_index}/{total}] "
+                            f"[попытка {attempt}/{self.CHANGE_IP_RETRIES}] "
+                            f"статус 200, но new_ip пустой"
                         )
-                        return True
-                    logger.warning(
-                        f"[ссылка {url_index}/{len(self.change_ip_urls)}] "
-                        f"[попытка {attempt}/{self.CHANGE_IP_RETRIES}] "
-                        f"неожиданный статус {res.status_code}"
-                    )
+                    else:
+                        logger.warning(
+                            f"[ссылка {url_index}/{total}] "
+                            f"[попытка {attempt}/{self.CHANGE_IP_RETRIES}] "
+                            f"статус {res.status_code}"
+                        )
                 except Exception as err:
-                    last_err = err
                     logger.warning(
-                        f"[ссылка {url_index}/{len(self.change_ip_urls)}] "
+                        f"[ссылка {url_index}/{total}] "
                         f"[попытка {attempt}/{self.CHANGE_IP_RETRIES}] "
                         f"ошибка: {err}"
                     )
                 if attempt < self.CHANGE_IP_RETRIES:
                     time.sleep(self.CHANGE_IP_RETRY_DELAY)
 
-        logger.error(
-            f"Не удалось сменить IP ни по одной из {len(self.change_ip_urls)} ссылок: {last_err}"
-        )
+        logger.error(f"Не удалось сменить IP ни по одной из {total} ссылок change_urls")
         return False
 
 

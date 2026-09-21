@@ -119,10 +119,10 @@ class AvitoParse:
 
     def get_proxy_obj(self) -> Proxy | None:
         if all([self.config.external_mobile_proxy.proxy_string,
-                self.config.external_mobile_proxy.change_url]):
+                self.config.external_mobile_proxy.change_urls]):
             return Proxy(
                 proxy_string=self.config.external_mobile_proxy.proxy_string,
-                change_ip_link=self.config.external_mobile_proxy.change_url
+                change_ip_link=self.config.external_mobile_proxy.change_urls[0]
             )
         logger.info("Работаем без прокси")
         return None
@@ -589,7 +589,7 @@ if __name__ == "__main__":
         logger.critical(f"SPFA не будет работать без прокси. {SPFA_PROXY_REQUIRED}")
         exit(1)
 
-    if config.use_bypass_api and not config.external_mobile_proxy.change_url:
+    if config.use_bypass_api and not config.external_mobile_proxy.change_urls:
         logger.warning(
             "SPFA запущен с серверным (статическим) прокси. Если будет много ошибок - установить большие "
             "min_delay/max_delay и pause_general, чтобы снизить риск блокировок."

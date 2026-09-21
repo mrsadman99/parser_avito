@@ -5,7 +5,7 @@
     python scripts/get_cookies_cli.py
 
 Что делает:
-    1. Читает proxy_string / proxy_change_url из config.toml
+    1. Читает proxy_string / change_urls из config.toml
     2. Запускает Playwright (chromium) ПОД IP мобильного прокси
     3. Открывает случайную страницу Avito и собирает cookies
     4. Сохраняет их в storage/own_cookies.json
@@ -38,16 +38,16 @@ OUTPUT_PATH = "storage/own_cookies.json"
 async def main():
     config = load_avito_config("config.toml")
 
-    if not (config.external_mobile_proxy.proxy_string and config.external_mobile_proxy.change_url):
+    if not (config.external_mobile_proxy.proxy_string and config.external_mobile_proxy.change_urls):
         logger.error(
             "В config.toml не настроен внешний мобильный прокси "
-            "(нужны и proxy_string, и proxy_change_url)"
+            "(нужны proxy_string и change_urls)"
         )
         return
 
     proxy = Proxy(
         proxy_string=config.external_mobile_proxy.proxy_string,
-        change_ip_link=config.external_mobile_proxy.change_url,
+        change_ip_link=config.external_mobile_proxy.change_urls[0],
     )
     logger.info(f"Запускаю Playwright через прокси: {config.external_mobile_proxy.proxy_string}")
 

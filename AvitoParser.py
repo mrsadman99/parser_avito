@@ -52,7 +52,7 @@ def main(page: ft.Page):
         vk_user_id.value = "\n".join(config.messengers.vk_user_id or [])
         count_page.value = str(config.count)
         proxy.value = config.external_mobile_proxy.proxy_string or ""
-        proxy_change_ip.value = config.external_mobile_proxy.change_url or ""
+        proxy_change_ip.value = "\n".join(config.external_mobile_proxy.change_urls or [])
         pause_general.value = config.pause_general or 60
         min_delay.value = str(config.min_delay)
         max_delay.value = str(config.max_delay)
@@ -160,7 +160,7 @@ def main(page: ft.Page):
             },
             "external_mobile_proxy": {
                 "proxy_string": proxy.value or "",
-                "change_url": proxy_change_ip.value or "",
+                "change_urls": [u.strip() for u in (proxy_change_ip.value or "").splitlines() if u.strip()],
             },
             "server": {
                 "server_port": prev_server.server_port,
@@ -465,8 +465,9 @@ def main(page: ft.Page):
                          can_reveal_password=True,
                          )
     proxy_change_ip = ft.TextField(
-        label="Ссылка для изменения IP, в формате https://changeip.mobileproxy.rent/?proxy_key=*** (только для мобильных прокси)", width=400,
-        expand=True, tooltip=PROXY_CHANGE_IP_HELP)
+        label="Ссылки для изменения IP (по одной в строке; только для мобильных прокси)",
+        width=400, expand=True, multiline=True, text_size=12, height=60,
+        tooltip=PROXY_CHANGE_IP_HELP)
     proxy_btn_panel_help = ft.FilledButton(text="Помощь (если ничего непонятно)", on_click=open_dlg_modal, expand=True,
                                        tooltip=PROXY_BTN_HELP_HELP)
 

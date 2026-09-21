@@ -60,10 +60,10 @@ geoip = true                         # гео/locale под IP прокси (н�
 
 
 # --- Свой мобильный прокси (tinyproxy на телефоне через SSH, без adb) ---
-# SSH-соединение держит tmux-сессия proxy НА ХОСТЕ парсера (или фоновый процесс при
-# detached_mode = true): внутри выполняется scripts/start_own_proxy.py --foreground.
-# Порты НЕ пробрасываются: парсер обращается к {ssh.host}:{port} напрямую.
-# На телефоне: pkg install tinyproxy openssh (sshd слушает 8022).
+# tinyproxy запускается на телефоне по SSH через `nohup` (без tmux) и живёт
+# независимо от SSH-сессии. При каждом запуске старый процесс останавливается.
+# Порты НЕ пробрасываются: адрес прокси = {server}:{port} (пусто = ssh.host),
+# парсер обращается туда напрямую. На телефоне: pkg install tinyproxy openssh.
 [avito.own_mobile_proxy]
 use = false                          # true — трафик через телефон (свой мобильный прокси)
 port = 8888                          # порт tinyproxy на телефоне
@@ -83,10 +83,10 @@ password = ""                        # пароль SSH
 # --- Внешний мобильный прокси (платный сервис) ---
 [avito.external_mobile_proxy]
 proxy_string = ""                    # формат: логин:пароль@хост:порт
-change_url = ""                      # URL смены IP внешнего мобильного прокси (changeip)
-# Дополнительные ссылки смены IP (fallback): если основная не смогла сменить IP,
-# парсер пробует следующую из списка.
-# change_urls = ["https://changeip.mobileproxy.space/?proxy_key=KEY2", "https://changeip.mobileproxy.space/?proxy_key=KEY3"]
+# Ссылки смены IP (changeip), например:
+#   "https://changeip.mobileproxy.space/?proxy_key=***"
+# Перебираются по порядку, пока запрос не выполнится успешно.
+change_urls = []
 
 
 # --- Мессенджеры для отправки обработанных объявлений ---

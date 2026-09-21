@@ -9,10 +9,8 @@ def build_proxy(config: AvitoConfig) -> Proxy:
     Определяет тип прокси (свой мобильный / внешний мобильный / серверный / без прокси).
 
     Свой мобильный прокси — tinyproxy на телефоне (SSH, без adb forward).
-    Внешний мобильный прокси может иметь НЕСКОЛЬКО ссылок смены IP:
-        change_url = "..."            # основная (одиночная)
-        change_urls = ["...", "..."]  # дополнительные (fallback)
-    Если одна ссылка не смогла сменить IP — парсер пробует следующую.
+    Внешний мобильный прокси имеет список ссылок смены IP `change_urls`
+    (перебираются по порядку, пока одна не сработает).
     """
     if config.own_mobile_proxy.use:
         logger.info("Прокси определён как свой мобильный (tinyproxy на телефоне по SSH)")
@@ -26,15 +24,12 @@ def build_proxy(config: AvitoConfig) -> Proxy:
         )
 
     change_urls = []
-    if config.external_mobile_proxy.change_url:
-        change_urls.append(config.external_mobile_proxy.change_url)
-    if config.external_mobile_proxy.change_urls:
-        for cu in config.external_mobile_proxy.change_urls:
-            if cu and cu not in change_urls:
-                change_urls.append(cu)
+    for cu in config.external_mobile_proxy.change_urls or []:
+        if cu and cu not in change_urls:
+            change_urls.append(cu)
 
     if change_urls and not config.external_mobile_proxy.proxy_string:
-        raise ValueError("change_url указан без proxy_string")
+        raise ValueError("change_urls указан без proxy_string")
 
     if config.external_mobile_proxy.proxy_string and change_urls:
         logger.info(f"Прокси определён как внешний мобильный (ссылок смены IP: {len(change_urls)})")

@@ -5,8 +5,8 @@
   * фоновые (detached_mode) процессы api / web / parser — по pid-файлам logs/*.pid
     (убивается вся группа процессов);
   * tmux-сессии (обычный режим): parser, api, web;
-  * свой мобильный прокси: tmux-сессия/фоновый процесс proxy на хосте и tinyproxy
-    на телефоне (по SSH), если включён [avito.own_mobile_proxy].use.
+  * свой мобильный прокси: tinyproxy на телефоне (nohup, по SSH), если включён
+    [avito.own_mobile_proxy].use.
 
 Запуск:
     python scripts/stop.py                 # остановить всё
@@ -128,7 +128,7 @@ def stop_tmux(name: str, dry_run: bool) -> None:
 
 
 def stop_own_proxy(dry_run: bool) -> None:
-    """Остановка своего мобильного прокси: tmux/процесс на хосте + tinyproxy на телефоне."""
+    """Остановка своего мобильного прокси: tinyproxy на телефоне (nohup, по SSH)."""
     try:
         config = load_avito_config("config.toml")
     except Exception as err:
@@ -138,13 +138,13 @@ def stop_own_proxy(dry_run: bool) -> None:
         return
 
     if dry_run:
-        print("  proxy: tmux-сессия/процесс на хосте и tinyproxy на телефоне будут остановлены")
+        print("  proxy: tinyproxy на телефоне будет остановлен (nohup-процесс)")
         return
 
-    from utils.own_mobile_proxy import stop_service
+    from utils.own_mobile_proxy import stop_proxy
 
-    print("  proxy: останавливаю сервис на хосте и tinyproxy на телефоне...")
-    stop_service(config)
+    print("  proxy: останавливаю tinyproxy на телефоне...")
+    stop_proxy(config)
 
 
 def main(argv=None):
@@ -166,7 +166,7 @@ def main(argv=None):
         stop_tmux(name, args.dry_run)
 
     if not args.keep_proxy:
-        print("Свой мобильный прокси (хост + телефон):")
+        print("Свой мобильный прокси (телефон):")
         stop_own_proxy(args.dry_run)
 
     print("Dry-run: ничего не изменено." if args.dry_run else "Готово.")

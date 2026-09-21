@@ -1,7 +1,7 @@
 """
 Получение / смена IP мобильного прокси (changeip.mobileproxy.space).
 
-Берёт proxy_string / proxy_change_url / proxy_change_urls / proxy_notifier из config.toml.
+Берёт proxy_string / change_urls / proxy_notifier из config.toml.
 Если ссылок смены IP несколько — перебирает их, пока одна не сработает.
 
 Запуск:
@@ -73,15 +73,10 @@ def main():
         print(f"❌ Не удалось загрузить config.toml: {err}")
         return
 
-    change_urls = []
-    if cfg.external_mobile_proxy.change_url:
-        change_urls.append(cfg.external_mobile_proxy.change_url)
-    for cu in (cfg.external_mobile_proxy.change_urls or []):
-        if cu and cu not in change_urls:
-            change_urls.append(cu)
+    change_urls = [cu for cu in (cfg.external_mobile_proxy.change_urls or []) if cu]
 
     if not (cfg.external_mobile_proxy.proxy_string and change_urls):
-        print("❌ В config.toml не настроен внешний мобильный прокси (нужны proxy_string и proxy_change_url)")
+        print("❌ В config.toml не настроен внешний мобильный прокси (нужны proxy_string и change_urls)")
         return
 
     host = cfg.external_mobile_proxy.proxy_string.split("@")[-1] if "@" in cfg.external_mobile_proxy.proxy_string else cfg.external_mobile_proxy.proxy_string

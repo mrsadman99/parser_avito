@@ -55,6 +55,25 @@ def _coerce_own_mobile_proxy(raw) -> OwnMobileProxyConfig:
     return config
 
 
+def _coerce_external_mobile_proxy(raw) -> ExternalMobileProxyConfig:
+    """Приводит сырой dict внешнего мобильного прокси к ExternalMobileProxyConfig.
+
+    Старое одиночное поле `change_url` подмешивается в начало `change_urls`.
+    """
+    if isinstance(raw, ExternalMobileProxyConfig):
+        return raw
+    if not isinstance(raw, dict):
+        raw = {}
+    allowed = {f.name for f in fields(ExternalMobileProxyConfig)}
+    values = {k: v for k, v in raw.items() if k in allowed}
+    urls = list(values.get("change_urls") or [])
+    legacy = raw.get("change_url")
+    if legacy and legacy not in urls:
+        urls.insert(0, legacy)
+    values["change_urls"] = urls
+    return ExternalMobileProxyConfig(**values)
+
+
 def _parse_links(raw) -> dict:
     """Приводит сырую мапу links (dict) к {url: LinkConfig}."""
     result = {}
@@ -100,11 +119,11 @@ def _migrate_legacy(avito: dict, flat: dict) -> None:
         flat["own_mobile_proxy"] = own
 
     if not avito.get("external_mobile_proxy") and not avito.get("mobile_proxy"):
-        flat["external_mobile_proxy"] = ExternalMobileProxyConfig(
-            proxy_string=avito.get("proxy_string"),
-            change_url=avito.get("proxy_change_url"),
-            change_urls=avito.get("proxy_change_urls", []),
-        )
+        flat["external_mobile_proxy"] = _coerce_external_mobile_proxy({
+            "proxy_string": avito.get("proxy_string"),
+            "change_urls": avito.get("proxy_change_urls", []),
+            "change_url": avito.get("proxy_change_url"),
+        })
 
     if not avito.get("messengers"):
         flat["messengers"] = MessengersConfig(
@@ -145,9 +164,8 @@ def load_avito_config(path: str = "config.toml") -> AvitoConfig:
     flat["own_mobile_proxy"] = _coerce_own_mobile_proxy(
         avito.get("own_mobile_proxy") or avito.get("adb_proxy")
     )
-    flat["external_mobile_proxy"] = _coerce(
-        ExternalMobileProxyConfig,
-        avito.get("external_mobile_proxy") or avito.get("mobile_proxy"),
+    flat["external_mobile_proxy"] = _coerce_external_mobile_proxy(
+        avito.get("external_mobile_proxy") or avito.get("mobile_proxy")
     )
     flat["messengers"] = _coerce(MessengersConfig, avito.get("messengers"))
     flat["server"] = _coerce(ServerConfig, avito.get("server"))

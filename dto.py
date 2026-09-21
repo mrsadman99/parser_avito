@@ -65,8 +65,7 @@ class OwnMobileProxyConfig:
 class ExternalMobileProxyConfig:
     """Внешний мобильный прокси (платный сервис, напр. mobileproxy.rent)."""
     proxy_string: Optional[str] = None
-    change_url: Optional[str] = None
-    change_urls: List[str] = field(default_factory=list)
+    change_urls: List[str] = field(default_factory=list)  # ссылки смены IP, по порядку
 
 
 @dataclass
@@ -100,7 +99,7 @@ class AvitoConfig:
     seller_black_list: List[str] = field(default_factory=list)
     count: int = 1
     debug_mode: int = 0
-    detached_mode: bool = False  # true — фоновые процессы вместо tmux (proxy/parser/api)
+    detached_mode: bool = False  # true — фоновые процессы вместо tmux (parser/api/web)
     pause_general: int = 60
     min_delay: float = 1.0      # мин. задержка между запросами к Avito, сек
     max_delay: float = 3.0      # макс. задержка между запросами к Avito, сек

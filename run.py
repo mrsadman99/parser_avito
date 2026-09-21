@@ -5,11 +5,11 @@ run.py запускает всё в фоне и сразу завершаетс�
 после выхода из run.py (и после отключения от SSH).
 
 Режим берётся из config.toml, ключ [avito].detached_mode:
-  * false (по умолчанию) — всё в локальных tmux-сессиях: api, web (--dev), proxy, parser;
-  * true — независимые фоновые процессы, логи в logs/api.log, logs/proxy.log, logs/parser.log.
+  * false (по умолчанию) — локальные tmux-сессии: api, web (--dev), parser;
+  * true — независимые фоновые процессы, логи в logs/api.log и logs/parser.log.
 
-Свой мобильный прокси ([avito.own_mobile_proxy]) поднимается на этом же хосте:
-tmux-сессия proxy держит SSH-соединение с телефоном и запускает там tinyproxy.
+Свой мобильный прокси ([avito.own_mobile_proxy]) запускается на телефоне по SSH
+через `nohup` (без tmux) и живёт независимо от SSH-сессии.
 
     python run.py          # production: сборка фронта + API + прокси + парсер
     python run.py --dev    # dev: Vite dev-сервер вместо собранного фронта
@@ -200,7 +200,7 @@ def main():
     if detached:
         print("Логи:      logs/api.log, logs/parser.log; pid: logs/*.pid")
     else:
-        print("tmux:      tmux ls;  tmux attach -t api|web|proxy|parser")
+        print("tmux:      tmux ls;  tmux attach -t api|web|parser")
     print("run.py завершает работу — процессы продолжают работать в фоне.")
     print("Остановить всё: python scripts/stop.py")
 

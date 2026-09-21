@@ -67,7 +67,7 @@ body:
         Приложите конфигурацию (файл config.toml), **заменив приватные данные**:
 
         ❗ Обязательно замаскируйте:
-        - proxy_string, proxy_change_url
+        - proxy_string, change_urls
         - cookies_api_key
         - tg_token / tg_chat_id / vk_token / vk_user_id
 

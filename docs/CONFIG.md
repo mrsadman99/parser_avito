@@ -139,17 +139,17 @@ block_threshold = 3
 ### Свой мобильный прокси (`[avito.own_mobile_proxy]`)
 
 tinyproxy, запущенный на телефоне (Termux), — трафик идёт через мобильную сеть.
-SSH-соединение с телефоном держит **хост, на котором стартует парсер**: локальная
-tmux-сессия `proxy` (или фоновый процесс при `detached_mode = true`) запускает
-`scripts/start_own_proxy.py --foreground`, который по SSH выполняет `tinyproxy -d`.
-Порты НЕ пробрасываются: адрес прокси собирается как `{server}:{port}` (если `server`
-пуст — берётся `ssh.host`), и парсер обращается туда напрямую. Этот же адрес
-(`login:password@{server}:{port}`) уходит в SPFA в поле `proxy` тела запроса, а сам
-запрос к SPFA выполняется через `[avito.messengers].proxy_notifier`.
+Запускается по SSH через `nohup ... &` (без tmux) и живёт независимо от SSH-сессии.
+При каждом запуске старый tinyproxy сначала останавливается (`pkill -x tinyproxy`),
+поэтому повторный запуск = перезапуск. Порты НЕ пробрасываются: адрес прокси
+собирается как `{server}:{port}` (если `server` пуст — берётся `ssh.host`), и парсер
+обращается туда напрямую. Этот же адрес (`login:password@{server}:{port}`) уходит
+в SPFA в поле `proxy` тела запроса, а сам запрос к SPFA выполняется через
+`[avito.messengers].proxy_notifier`.
 
 Запуск/остановка:
-- только прокси: `python scripts/run_proxy.py [--verify|--foreground|--stop]`;
-- вместе с сервисами: `python run.py` / `python scripts/start_own_proxy.py [--stop]`;
+- только прокси: `python scripts/run_proxy.py [--verify|--stop]`;
+- вместе с сервисами: `python run.py`;
 - всё остановить: `python scripts/stop.py` (без `--keep-proxy`).
 
 ```toml
@@ -169,24 +169,29 @@ password = "***"        # пароль SSH
 ```
 
 Требуется `paramiko` (`pip install -r requirements.txt`) и на телефоне:
-`pkg install tinyproxy openssh`, затем `sshd`. Смена IP (`rotate_ip`) — best-effort
-через airplane mode и требует root/`tsu` на телефоне.
+`pkg install tinyproxy openssh`, затем `sshd`. Смена IP (`rotate_ip`) выполняется
+переводом телефона в **режим полёта и обратно** (`settings put global
+airplane_mode_on` + broadcast) и требует root/`tsu` на телефоне.
 
 ### Внешний мобильный прокси (`[avito.external_mobile_proxy]`)
 
 Платный мобильный прокси (например, mobileproxy.rent). Если `proxy_string` задан
-вместе с `change_url` — прокси умеет менять IP; без `change_url` — это обычный
+вместе с `change_urls` — прокси умеет менять IP; без `change_urls` — это обычный
 статический (серверный) прокси.
 
 ```toml
 [avito.external_mobile_proxy]
 proxy_string = "login:pass@mproxy.site:11139"
-change_url = "https://changeip.mobileproxy.space/?proxy_key=***"
-# change_urls = ["..."]   # дополнительные ссылки смены IP (fallback)
+change_urls = [
+    "https://changeip.mobileproxy.space/?proxy_key=***",
+    "https://aproxy.site/?proxy_key=***",
+]
 ```
 
 - Формат `proxy_string`: `username:password@host:port`.
-- `change_url` — URL смены IP; парсер дёргает его при блокировках (`+&format=json`).
+- `change_urls` — список ссылок смены IP.
+- При блокировке парсер перебирает `change_urls` **по порядку**, пока запрос не
+  выполнится успешно (200 и непустой `new_ip`).
 - Только **HTTP(S)** — SOCKS не поддерживается без правки кода.
 
 Приоритет: если `[avito.own_mobile_proxy].use = true`, используется свой мобильный
@@ -294,13 +299,13 @@ proxy_notifier = "127.0.0.1:5222"
 
 ### `detached_mode` — булево
 
-Как `run.py` запускает процессы (прокси, API, web, парсер):
+Как `run.py` запускает локальные процессы (API, web, парсер):
 
-- `false` (по умолчанию) — в локальных tmux-сессиях `proxy`, `api`, `web` (`--dev`), `parser`;
-- `true` — независимыми фоновыми процессами (переживают выход из `run.py` и отключение SSH), логи в `logs/proxy.log`, `logs/api.log`, `logs/parser.log`.
+- `false` (по умолчанию) — в tmux-сессиях `api`, `web` (`--dev`), `parser`;
+- `true` — независимыми фоновыми процессами (переживают выход из `run.py` и отключение SSH), логи в `logs/api.log`, `logs/parser.log`.
 
-Свой мобильный прокси также запускается на хосте: tmux-сессией `proxy` (или фоновым
-процессом) и держит SSH-соединение с телефоном, где работает tinyproxy.
+Свой мобильный прокси на `detached_mode` не влияет: tinyproxy запускается на телефоне
+по SSH через `nohup` и не требует ни tmux, ни процесса на хосте.
 
 ```toml
 detached_mode = false

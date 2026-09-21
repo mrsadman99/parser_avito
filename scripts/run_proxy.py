@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """Запуск ТОЛЬКО своего мобильного прокси — без парсера, API и веб-сервера.
 
-Свой мобильный прокси: tinyproxy на телефоне; SSH-соединение держит tmux-сессия
-`proxy` на этом хосте (или фоновый процесс при `detached_mode = true`). Ничего
-другого скрипт не поднимает.
+Свой мобильный прокси: tinyproxy на телефоне; запускается по SSH через `nohup`
+(без tmux) и живёт независимо от SSH-сессии. При запуске старый tinyproxy
+останавливается, поэтому повторный запуск = перезапуск.
 
 Адрес прокси собирается из `[avito.own_mobile_proxy].server` и `.port`
 (если `server` пуст — берётся `[avito.own_mobile_proxy.ssh].host`).
 
 Запуск:
-    python scripts/run_proxy.py               # поднять прокси (tmux/фон) и выйти
-    python scripts/run_proxy.py --verify      # поднять и проверить IP через прокси
-    python scripts/run_proxy.py --foreground  # держать в текущем терминале (Ctrl+C — стоп)
-    python scripts/run_proxy.py --stop        # остановить прокси (хост + телефон)
+    python scripts/run_proxy.py               # запустить (перезапустить) прокси
+    python scripts/run_proxy.py --verify      # запустить и проверить IP через прокси
+    python scripts/run_proxy.py --stop        # остановить tinyproxy на телефоне
 """
 import argparse
 import sys
@@ -24,7 +23,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from load_config import load_avito_config
 from parser.proxies.proxy import OwnMobileProxy
 from parser.proxies.proxy_factory import build_proxy
-from utils.own_mobile_proxy import run_foreground, start_service, stop_service
+from utils.own_mobile_proxy import (
+    DEFAULT_DEVICE_LOG,
+    start_proxy,
+    stop_proxy,
+)
 
 
 def _display(proxy: OwnMobileProxy) -> str:
@@ -54,12 +57,12 @@ def main(argv=None):
         description="Запуск только своего мобильного прокси (tinyproxy на телефоне по SSH)"
     )
     parser.add_argument("--config", default="config.toml", help="Путь к config.toml")
-    parser.add_argument("--foreground", action="store_true",
-                        help="Держать прокси в текущем терминале (Ctrl+C — остановить)")
+    parser.add_argument("--device-log", default=DEFAULT_DEVICE_LOG,
+                        help=f"Файл лога на телефоне (по умолчанию {DEFAULT_DEVICE_LOG})")
     parser.add_argument("--verify", action="store_true",
                         help="После запуска проверить фактический IP через прокси")
     parser.add_argument("--stop", action="store_true",
-                        help="Остановить прокси: tmux/процесс на хосте и tinyproxy на телефоне")
+                        help="Остановить tinyproxy на телефоне")
     args = parser.parse_args(argv)
 
     try:
@@ -75,13 +78,9 @@ def main(argv=None):
         return 1
 
     if args.stop:
-        stop_service(config)
-        return 0
+        return stop_proxy(config)
 
-    if args.foreground:
-        return run_foreground(config)
-
-    code = start_service(config, args.config)
+    code = start_proxy(config, device_log=args.device_log)
     if code != 0:
         return code
 
