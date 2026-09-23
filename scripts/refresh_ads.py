@@ -4,7 +4,8 @@
 Для каждого уже распарсенного объявления (ad_url из таблицы viewed):
   * запрашивает detail-страницу тем же стеком, что и парсер — тот же прокси,
     cookies и общий throttle/очередь с задержкой min_delay..max_delay
-    (через AvitoParse.fetch_data); домен avito.ru заменяется на m.avito.ru;
+    (через AvitoParse.fetch_data); ссылка приводится к виду `https://www.avito.ru{path}`
+    — точно как в upstream parse_views (из `ad.urlPath`);
   * обновляет поля в таблице viewed: price, title, description, ad_url,
     photo_url, has_delivery, city, seller_rating, seller_reviews и дату
     парсинга (scanned_at);
@@ -45,13 +46,17 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _mobile_url(url: str) -> str:
-    """Заменяет host avito.ru (в т.ч. www.avito.ru) на m.avito.ru."""
+def _parse_views_url(url: str) -> str:
+    """Приводит ссылку к виду `https://www.avito.ru{path}` — как в upstream parse_views.
+
+    В upstream parse_views запрос идёт на f"https://www.avito.ru{ad.urlPath}".
+    В БД ad_url хранится как "https://www.avito.ru{urlPath}", поэтому берём только
+    path и подставляем host www.avito.ru (без query/fragment, как urlPath).
+    """
     parts = urlsplit(url)
     host = parts.hostname or ""
     if host.endswith("avito.ru"):
-        netloc = "m.avito.ru" + (f":{parts.port}" if parts.port else "")
-        return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+        return urlunsplit(("https", "www.avito.ru", parts.path, "", ""))
     return url
 
 
@@ -109,8 +114,8 @@ def main(argv=None):
             print(f"[{index}/{total}] id={ad_id}: нет ad_url — пропуск")
             continue
 
-        # Запрос через общий throttle (задержка min_delay..max_delay, как при парсинге)
-        fetch_url = _mobile_url(url)
+        # Ссылка как в upstream parse_views: https://www.avito.ru{path}
+        fetch_url = _parse_views_url(url)
         html = avito.fetch_data(fetch_url)
         if not html:
             skipped += 1
