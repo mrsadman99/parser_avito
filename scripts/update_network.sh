@@ -26,13 +26,13 @@ echo "IP мобильного интерфейса: $IP_MOBILE"
 # --- 3. Очистка старых правил (на случай повторного запуска) ---
 su -c "iptables -t mangle -D OUTPUT -m owner --uid-owner $UID_TERMUX -m conntrack --ctstate NEW -j CONNMARK --set-mark 0x10" 2>/dev/null
 su -c "iptables -t mangle -D OUTPUT -m connmark --mark 0x10 -j MARK --set-mark 0x10" 2>/dev/null
-su -c "iptables -t mangle -D OUTPUT -m owner --uid-owner $UID_TERMUX -d 192.168.0.0/16 -j RETURN" 2>/dev/null
+su -c "iptables -t mangle -D OUTPUT -m owner --uid-owner $UID_TERMUX -d 192.168.1.0/24 -j RETURN" 2>/dev/null
 su -c "ip rule del fwmark 0x10 table 100" 2>/dev/null
 su -c "ip route flush table 100" 2>/dev/null
 
 # --- 4. Настраиваем маркировку и маршрутизацию ---
 # Исключение: трафик к локальной подсети не помечаем
-su -c "iptables -t mangle -A OUTPUT -m owner --uid-owner $UID_TERMUX -d 192.168.0.0/16 -j RETURN"
+su -c "iptables -t mangle -A OUTPUT -m owner --uid-owner $UID_TERMUX -d 192.168.1.0/24 -j RETURN"
 
 # Помечаем только новые исходящие соединения Termux
 su -c "iptables -t mangle -A OUTPUT -m owner --uid-owner $UID_TERMUX -m conntrack --ctstate NEW -j CONNMARK --set-mark 0x10"
