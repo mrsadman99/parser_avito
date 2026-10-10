@@ -144,10 +144,11 @@ tinyproxy, запущенный на телефоне (Termux), — трафик
 через мобильный интерфейс + обновление `Bind` в `tinyproxy.conf`), причём в порядке
 **стоп tinyproxy → fix_interfaces_via_ssh.sh → старт tinyproxy**.
 При ADB выполняются остановка, запуск через nohup и проверка процесса; настройки
-сети и tinyproxy.conf сохраняются. Порты НЕ пробрасываются:
-адрес прокси собирается как `{server}:{port}` (если `server` пуст — берётся
-`ssh.host`), и парсер обращается туда напрямую. Этот же адрес
-(`login:password@{server}:{port}`) уходит в SPFA в поле `proxy` тела запроса, а сам
+сети и tinyproxy.conf сохраняются. TCP-трафик **всегда** пробрасывается через ADB,
+включая управление телефоном через SSH. `adb_forward = [port1, port2]` задаёт
+порт ADB на сервере и порт tinyproxy на телефоне. Адрес прокси — `{server}:port1`
+(пустой `server` означает `127.0.0.1`, `ssh.host` относится только к телефону).
+Этот же адрес (`login:password@{server}:port1`) уходит в SPFA в поле `proxy` тела запроса, а сам
 запрос к SPFA выполняется через `[avito.messengers].proxy_notifier`.
 
 Запуск/остановка:
@@ -158,13 +159,13 @@ tinyproxy, запущенный на телефоне (Termux), — трафик
 ```toml
 [avito.own_mobile_proxy]
 use = true          # true — трафик через свой мобильный прокси
-transport = "adb"   # adb или ssh — транспорт всех команд телефона
-port = 8888         # порт tinyproxy на телефоне
+transport = "adb"   # adb или ssh — управление телефоном; TCP всегда через ADB
+adb_forward = [15556, 5556] # [TCP-порт ADB на сервере, Port из tinyproxy.conf]
 rotate_ip = true    # смена IP через выбранный транспорт при блокировках
 adb_serial = ""     # серийник устройства для adb (пусто — adb без -s)
 login = ""          # опционально: логин HTTP (tinyproxy BasicAuth)
 password = ""       # опционально: пароль HTTP (tinyproxy BasicAuth)
-server = ""         # адрес прокси (host или host:port) для парсера и SPFA; пусто = ssh.host
+server = ""         # адрес сервера ADB для парсера и SPFA; пусто = 127.0.0.1
 
 [avito.own_mobile_proxy.ssh]
 host = "192.168.1.50"   # IP-адрес телефона (только для SSH)
@@ -174,11 +175,52 @@ password = "***"        # пароль SSH
 ```
 
 Для SSH нужны `paramiko`, Termux sshd и настройки секции ssh.
+Для TCP-проброса при любом transport нужны adb в PATH и подключённый телефон.
 Для ADB нужны adb в PATH, доступное устройство (adb_serial либо единственное
 подключённое устройство) и разрешённый root-доступ. Смена IP выполняется
 через выбранный транспорт. При SSH перед запуском/перезапуском выполняется
 scripts/fix_interfaces_via_ssh.sh (нужен root/su на телефоне).
 При ADB готовая конфигурация Termux используется без настройки интерфейсов.
+
+Проброс выполняется напрямую: `adb -s SERIAL forward tcp:port1 tcp:port2`.
+TCP обслуживает сам ADB-сервер, дополнительного TCP-приёмника в проекте нет.
+Интерфейс проброшенного порта зависит от уже запущенного ADB-сервера:
+обычно localhost, а при его запуске с `-a` — все интерфейсы.
+Источник: [реализация TCP listener в ADB](https://android.googlesource.com/platform/packages/modules/adb/+/f4965b77c694689c08855076eaf983c8e88646f9/socket_spec.cpp).
+
+Проброс создаётся при запуске, в том числе если tinyproxy уже работает,
+восстанавливается после смены IP и обновляется монитором
+`scripts/watch_tinyproxy_forward.py` каждые 5 секунд. Монитор не открывает сокеты
+и не передаёт трафик; при отключении устройства повторяет настройку после его возвращения.
+Ошибка его создания делает запуск неуспешным; ошибка при смене IP передаётся
+механизму повторных попыток. При остановке прокси монитор завершается, а его ADB-forward удаляется.
+Состояние процесса — `logs/tinyproxy_forward.json`, диагностика —
+`logs/tinyproxy_forward.log`, команды и ответы ADB — `logs/adb.log`.
+Для внешнего доступа используйте nginx stream: клиент → nginx →
+127.0.0.1:port1 → ADB → телефон:port2. Например, `adb_forward = [15556, 5556]`,
+`server = "127.0.0.1"` для локального парсера и внешний порт nginx 5556.
+В конфигурации nginx на верхнем уровне (рядом с http):
+
+```nginx
+stream {
+    server {
+        listen 5556;
+        allow 198.51.100.10; # замените на IP клиента
+        deny all;
+        proxy_connect_timeout 5s;
+        proxy_timeout 120s;
+        proxy_pass 127.0.0.1:15556;
+    }
+}
+```
+
+TLS и ограничения внешнего доступа настраиваются в nginx. Для HTTPS-прокси
+добавьте `ssl` в listen и сертификаты. Текущий парсер использует обычный HTTP-прокси
+на локальном порту ADB. Публикация через nginx не меняет адрес, возвращаемый
+get_spfa_proxy_string: внешний сервис требует доступного извне адреса и согласованного порта.
+Источник: [nginx stream proxy_pass](https://nginx.org/en/docs/stream/ngx_stream_proxy_module.html#proxy_pass).
+Поле `port` устарело; массив `adb_forward` имеет приоритет. Старые bool-значения
+и конфиги без массива читаются как `[port, port]` и больше не отключают проброс.
 
 Логи tinyproxy пишутся на телефоне: вывод nohup перенаправляется в файл;
 только при SSH в tinyproxy.conf выставляются LogFile и Syslog Off. Логи

@@ -2,7 +2,7 @@
 
 Запуск, остановка, статус, логи и смена IP используют один транспорт.
 ADB требует root и выполняет команды с UID Termux. SSH подключается к Termux sshd.
-Прокси доступен напрямую по server:port (резервный адрес — ssh.host).
+TCP-трафик всегда проходит через ADB, независимо от транспорта управления.
 """
 import base64
 import os
@@ -17,6 +17,7 @@ from pathlib import Path
 from loguru import logger
 
 from utils.adb import run_adb as _adb, stream_adb
+from utils.tinyproxy_forward import ensure_forward, stop_forward, proxy_address as _forward_address
 
 ROOT = Path(__file__).resolve().parent.parent
 FIX_INTERFACES_SCRIPT = ROOT / "scripts" / "fix_interfaces_via_ssh.sh"
@@ -52,14 +53,8 @@ REMOTE_ENV = (
 # --------------------------------------------------------------------------- #
 
 def proxy_address(own) -> str:
-    """Адрес прокси: {server}:{port}; если server пуст — {ssh.host}:{port}."""
-    host = (getattr(own, "server", "") or "").strip()
-    if not host:
-        host = (getattr(getattr(own, "ssh", None), "host", "") or "").strip()
-    port = int(getattr(own, "port", 0) or 8888)
-    if host and ":" not in host:
-        host = f"{host}:{port}"
-    return host or f"127.0.0.1:{port}"
+    """Адрес сервера с портом adb_forward[0]; пустой server = localhost."""
+    return _forward_address(own.server, own.adb_forward)
 
 
 def _connect(ssh, timeout: int = 15):
@@ -375,6 +370,11 @@ def start_proxy(config, device_log: str = DEFAULT_DEVICE_LOG,
         print("❌ Не удалось запустить tinyproxy на телефоне", file=sys.stderr)
         return 1
 
+    try:
+        ensure_forward(own.adb_serial, own.adb_forward)
+    except Exception as err:
+        print(f"❌ {err}", file=sys.stderr)
+        return 1
     _start_log_follower(config_path, device_log)
     print(f"tinyproxy запущен на телефоне (nohup, транспорт {own.transport}). "
           f"Лог на телефоне: {device_log}; стрим на хост: logs/{LOCAL_LOG.name}")
@@ -394,6 +394,12 @@ def stop_proxy(config, force: bool = False) -> int:
         return 0
 
     _stop_log_follower()
+    forward_error = False
+    try:
+        stop_forward()
+    except Exception as err:
+        print(f"⚠️ Не удалось остановить TCP-проброс: {err}", file=sys.stderr)
+        forward_error = True
 
     try:
         client = _open_control(own)
@@ -426,7 +432,7 @@ def stop_proxy(config, force: bool = False) -> int:
         print("  ⚠️ tinyproxy всё ещё запущен на телефоне", file=sys.stderr)
         return 1
     print("    tinyproxy остановлен (pkill -x tinyproxy)")
-    return 0
+    return 1 if forward_error else 0
 
 
 def service_running(config) -> bool:
@@ -562,7 +568,7 @@ class _AdbTermuxClient:
 
 
 def rotate_ip(adb_serial=None, ssh=None, device_log: str = DEFAULT_DEVICE_LOG,
-              transport: str = "ssh") -> bool:
+              transport: str = "ssh", adb_forward=None) -> bool:
     """Смена IP своего прокси.
 
     1. режим полёта и обратно через выбранный транспорт;
@@ -594,6 +600,11 @@ def rotate_ip(adb_serial=None, ssh=None, device_log: str = DEFAULT_DEVICE_LOG,
     if out:
         logger.info(f"tinyproxy: {out}")
     if ok:
+        try:
+            ensure_forward(adb_serial, adb_forward if adb_forward is not None else [8888, 8888])
+        except Exception as err:
+            logger.warning(f"Смена IP: TCP-проброс через ADB не восстановлен: {err}")
+            return False
         logger.success("IP обновлён: режим полёта выключен, tinyproxy перезапущен")
     return ok
 
@@ -611,6 +622,7 @@ def ensure_own_mobile_proxy(config, config_path: str = DEFAULT_CONFIG) -> bool:
         return False
 
     if service_running(config):
+        ensure_forward(own.adb_serial, own.adb_forward)
         logger.info("Свой мобильный прокси уже запущен на телефоне")
         _start_log_follower(config_path, DEFAULT_DEVICE_LOG)
         return True

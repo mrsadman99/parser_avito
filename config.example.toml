@@ -61,21 +61,22 @@ humanize = true                      # человеческие движения
 geoip = true                         # гео/locale под IP прокси (нужен [geoip])
 
 
-# --- Свой мобильный прокси (tinyproxy на телефоне через SSH, без adb forward) ---
+# --- Свой мобильный прокси (tinyproxy на телефоне, TCP-трафик через ADB) ---
 # tinyproxy запускается на телефоне через SSH/ADB через `nohup` (без tmux) и живёт
 # независимо от SSH-сессии. При каждом запуске старый процесс останавливается.
-# Порты НЕ пробрасываются: адрес прокси = {server}:{port} (пусто = ssh.host),
-# парсер обращается туда напрямую. На телефоне: pkg install tinyproxy openssh.
+# TCP-проброс обязателен и при SSH: сервер:port1 → ADB → телефон:port2.
+# Без -a у ADB-сервера порт доступен через localhost; публикация наружу — через nginx stream.
+# На телефоне: pkg install tinyproxy openssh. Port в tinyproxy.conf должен быть равен port2.
 # Смена IP (rotate_ip) — режим полёта через выбранный transport.
 [avito.own_mobile_proxy]
 transport = "ssh" # все команды телефона: ssh или adb (root + Termux)
 use = false                          # true — трафик через телефон (свой мобильный прокси)
-port = 8888                          # порт tinyproxy на телефоне
+adb_forward = [8888, 8888]            # [TCP-порт ADB на сервере, порт tinyproxy на телефоне]
 rotate_ip = true                     # смена IP (airplane mode) при блокировке
 adb_serial = ""                      # серийник устройства для adb (пусто — adb без -s)
 login = ""                           # опционально: логин HTTP (tinyproxy BasicAuth)
 password = ""                        # опционально: пароль HTTP (tinyproxy BasicAuth)
-server = ""                          # адрес прокси (host или host:port) для парсера и SPFA; пусто = ssh.host
+server = ""                          # IP/host сервера ADB для парсера и SPFA; пусто = 127.0.0.1
 
 # SSH-подключение к телефону (запуск/остановка tinyproxy)
 [avito.own_mobile_proxy.ssh]

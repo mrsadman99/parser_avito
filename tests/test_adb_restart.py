@@ -14,6 +14,12 @@ def result(code=0, stdout='', stderr=''):
 
 
 class AdbRestartTests(unittest.TestCase):
+    def setUp(self):
+        # Lifecycle tests exercise phone control independently of the TCP process.
+        self.forward = patch.object(mobile, 'ensure_forward').start()
+        self.stop_forward = patch.object(mobile, 'stop_forward').start()
+        self.addCleanup(patch.stopall)
+
     def test_termux_uid_and_shell_quoting(self):
         command = "printf '%s\\n' \"$HOME\"; echo 'hello'"
         with patch.object(mobile, '_adb', side_effect=[result(stdout='10234'), result(stdout='ok')]) as adb:
@@ -93,13 +99,14 @@ class AdbRestartTests(unittest.TestCase):
                 self.assertEqual(selected.call_count, 4)
                 unused.assert_not_called()
 
-    def test_ssh_rotation_never_calls_adb(self):
+    def test_ssh_rotation_controls_phone_over_ssh_and_restores_adb_forward(self):
         with patch.object(mobile, '_adb') as adb, patch.object(mobile, '_connect') as connect, \
              patch.object(mobile, '_run_remote', side_effect=[(0, '', ''), (0, '0', '')]) as run, \
              patch.object(mobile, '_restart_tinyproxy', return_value=(True, 'running')), \
              patch.object(mobile.time, 'sleep'):
             self.assertTrue(mobile.rotate_ip(ssh=Mock(host='phone'), transport='ssh'))
             adb.assert_not_called()
+            self.forward.assert_called_once_with(None, [8888, 8888])
             self.assertEqual(connect.call_count, 3)
             command = run.call_args_list[0].args[1]
             self.assertIn('nohup', command)

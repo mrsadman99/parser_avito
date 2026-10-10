@@ -77,7 +77,8 @@ def main(page: ft.Page):
         camoufox_humanize.value = config.camoufox.humanize
         camoufox_geoip.value = config.camoufox.geoip
         use_own_mobile_proxy.value = config.own_mobile_proxy.use
-        own_proxy_port.value = str(config.own_mobile_proxy.port)
+        own_proxy_port.value = str(config.own_mobile_proxy.adb_forward[1])
+        own_forward_port.value = str(config.own_mobile_proxy.adb_forward[0])
         own_rotate_ip.value = config.own_mobile_proxy.rotate_ip
         own_transport.value = config.own_mobile_proxy.transport
         own_adb_serial.value = config.own_mobile_proxy.adb_serial or ""
@@ -150,7 +151,7 @@ def main(page: ft.Page):
             },
             "own_mobile_proxy": {
                 "use": use_own_mobile_proxy.value,
-                "port": to_int_safe(own_proxy_port.value, 8888),
+                "adb_forward": [to_int_safe(own_forward_port.value, 8888), to_int_safe(own_proxy_port.value, 8888)],
                 "rotate_ip": own_rotate_ip.value,
                 "adb_serial": own_adb_serial.value or "",
                 "transport": own_transport.value,
@@ -566,8 +567,9 @@ def main(page: ft.Page):
     # Свой мобильный прокси (tinyproxy на телефоне через SSH/ADB)
     use_own_mobile_proxy = ft.Checkbox("Свой мобильный прокси (tinyproxy на телефоне через SSH/ADB)", value=False,
                                        tooltip="tinyproxy запускается на телефоне через SSH/ADB через nohup; "
-                                               "порты не пробрасываются, парсер ходит на ip:порт телефона")
+                                               "TCP-трафик всегда пробрасывается через ADB на телефон")
     own_proxy_port = ft.TextField(label="Порт tinyproxy на телефоне", value="8888", width=180, text_size=12, height=40)
+    own_forward_port = ft.TextField(label="TCP-порт ADB на сервере", value="8888", width=200, text_size=12, height=40)
     own_transport = ft.Dropdown(label="Управление телефоном: SSH / ADB", value="ssh",
                                   options=[ft.dropdown.Option("ssh"), ft.dropdown.Option("adb")], width=320)
     own_rotate_ip = ft.Checkbox("Смена IP (airplane mode)", value=True)
@@ -576,9 +578,8 @@ def main(page: ft.Page):
     own_proxy_login = ft.TextField(label="Логин HTTP", value="", width=150, text_size=12, height=40)
     own_proxy_password = ft.TextField(label="Пароль HTTP", value="", password=True,
                                       can_reveal_password=True, width=150, text_size=12, height=40)
-    own_proxy_server = ft.TextField(label="Адрес прокси (host)", value="", width=220, text_size=12, height=40,
-                                    tooltip="Адрес прокси для парсера и SPFA (порт берётся из «Порт tinyproxy»). "
-                                            "Пусто = ssh.host")
+    own_proxy_server = ft.TextField(label="Адрес сервера ADB", value="", width=220, text_size=12, height=40,
+                                    tooltip="Адрес сервера с проброшенным TCP-портом для парсера и SPFA. Пусто = 127.0.0.1")
     ssh_host = ft.TextField(label="IP телефона (SSH)", value="", width=180, text_size=12, height=40)
     ssh_port = ft.TextField(label="Порт SSH", value="8022", width=120, text_size=12, height=40)
     ssh_user = ft.TextField(label="Пользователь SSH", value="", width=180, text_size=12, height=40)
@@ -686,6 +687,7 @@ def main(page: ft.Page):
                                             ft.Divider(),
                                             use_own_mobile_proxy,
                                             ft.Row([own_proxy_port, own_rotate_ip, own_adb_serial]),
+                                            own_forward_port,
                                             own_transport,
                                             ft.Row([own_proxy_login, own_proxy_password]),
                                             own_proxy_server,

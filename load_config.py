@@ -52,6 +52,10 @@ def _coerce_own_mobile_proxy(raw) -> OwnMobileProxyConfig:
     raw = dict(raw)
     if "transport" not in raw and "restart_via" in raw:
         raw["transport"] = raw["restart_via"]
+    if "adb_forward" not in raw or isinstance(raw["adb_forward"], bool):
+        # Старое bool-поле больше не отключает обязательный проброс.
+        port = raw.get("port", 8888)
+        raw["adb_forward"] = [port, port]
     allowed = {f.name for f in fields(OwnMobileProxyConfig) if f.name != "ssh"}
     config = OwnMobileProxyConfig(**{k: v for k, v in raw.items() if k in allowed})
     config.ssh = _coerce(SshConfig, raw.get("ssh"))
@@ -105,6 +109,8 @@ def _migrate_legacy(avito: dict, flat: dict) -> None:
         own = OwnMobileProxyConfig(
             use=avito.get("use_adb_proxy", False),
             port=avito.get("own_mobile_proxy_port", avito.get("adb_remote_port", 8888)),
+            adb_forward=[avito.get("adb_local_port", avito.get("adb_remote_port", 8888)),
+                         avito.get("own_mobile_proxy_port", avito.get("adb_remote_port", 8888))],
             rotate_ip=avito.get("adb_rotate_ip", True),
             adb_serial=avito.get("adb_device_serial", ""),
             login=avito.get("adb_proxy_login", ""),

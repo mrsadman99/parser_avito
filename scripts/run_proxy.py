@@ -5,8 +5,8 @@
 (без tmux) и живёт независимо от SSH-сессии. При запуске старый tinyproxy
 останавливается, поэтому повторный запуск = перезапуск.
 
-Адрес прокси собирается из `[avito.own_mobile_proxy].server` и `.port`
-(если `server` пуст — берётся `[avito.own_mobile_proxy.ssh].host`).
+TCP-трафик всегда проходит через ADB. Адрес прокси: server:adb_forward[0]
+(если server пуст — localhost); порт телефона — adb_forward[1].
 
 Запуск:
     python scripts/run_proxy.py               # запустить (перезапустить) прокси
@@ -72,13 +72,13 @@ def main(argv=None):
         return 1
 
     own = getattr(config, "own_mobile_proxy", None)
+    if args.stop:
+        return stop_proxy(config, force=True)
+
     if not getattr(own, "use", False):
         print("❌ [avito.own_mobile_proxy].use = false — прокси не настроен в config.toml",
               file=sys.stderr)
         return 1
-
-    if args.stop:
-        return stop_proxy(config)
 
     code = start_proxy(config, device_log=args.device_log, config_path=args.config)
     if code != 0:

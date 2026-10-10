@@ -106,24 +106,19 @@ class ExternalMobileProxy(Proxy):
 
 
 class OwnMobileProxy(Proxy):
-    """Свой мобильный прокси: tinyproxy на телефоне, запуск по SSH (без adb forward).
-
-    Адрес прокси собирается из `server` (own_mobile_proxy.server) и `port`
-    (own_mobile_proxy.port): {server}:{port}. Если `server` пуст — берётся ssh.host.
-    Трафик идёт: Camoufox -> http://{server}:{port} -> tinyproxy на телефоне
-    -> мобильная сеть. Смена IP — режим полёта через adb (adb_serial).
-    """
+    """Tinyproxy: сервер:adb_forward[0] → ADB → телефон:adb_forward[1]."""
 
     def __init__(self, adb_serial=None, server=None, port=8888, rotate_ip=True,
-                 login=None, password=None, ssh=None, transport="ssh"):
+                 login=None, password=None, ssh=None, transport="ssh", adb_forward=None):
+        from dto import OwnMobileProxyConfig
+        from utils.tinyproxy_forward import proxy_address
+        ports = OwnMobileProxyConfig(adb_forward=adb_forward if adb_forward is not None else [port, port]).adb_forward
+        self.adb_forward = ports
         self.transport = transport
         self.adb_serial = adb_serial
         self.ssh = ssh
-        self.port = int(port or 8888)
-        host = (server or "").strip() or (getattr(ssh, "host", "") or "").strip()
-        if host and ":" not in host:
-            host = f"{host}:{self.port}"
-        self.host = host or f"127.0.0.1:{self.port}"
+        self.port = ports[1]
+        self.host = proxy_address(server, ports)
         self.rotate_ip = rotate_ip
         self.login = login
         self.password = password
@@ -149,4 +144,5 @@ class OwnMobileProxy(Proxy):
             logger.warning("Смена IP своего мобильного прокси отключена (rotate_ip = false)")
             return False
         from utils.own_mobile_proxy import rotate_ip
-        return rotate_ip(self.adb_serial, ssh=self.ssh, transport=self.transport)
+        return rotate_ip(self.adb_serial, ssh=self.ssh, transport=self.transport,
+                         adb_forward=self.adb_forward)

@@ -8,7 +8,7 @@ def _build_proxy(config: AvitoConfig) -> Proxy:
     """
     Определяет тип прокси (свой мобильный / внешний мобильный / серверный / без прокси).
 
-    Свой мобильный прокси — tinyproxy на телефоне (SSH, без adb forward).
+    Свой мобильный прокси — tinyproxy на телефоне с обязательным TCP-пробросом ADB.
     Внешний мобильный прокси имеет список ссылок смены IP `change_urls`
     (перебираются по порядку, пока одна не сработает).
     """
@@ -23,6 +23,7 @@ def _build_proxy(config: AvitoConfig) -> Proxy:
             password=config.own_mobile_proxy.password or None,
             ssh=config.own_mobile_proxy.ssh,
             transport=config.own_mobile_proxy.transport,
+            adb_forward=config.own_mobile_proxy.adb_forward,
         )
 
     change_urls = []

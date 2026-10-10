@@ -66,20 +66,26 @@ class SshConfig:
 
 @dataclass
 class OwnMobileProxyConfig:
-    """Свой мобильный прокси: tinyproxy на телефоне (SSH), смена IP — режим полёта через adb."""
+    """Tinyproxy на телефоне; TCP-трафик всегда проходит через ADB."""
     use: bool = False
-    port: int = 8888             # порт tinyproxy на телефоне
-    rotate_ip: bool = True       # смена IP через adb (airplane mode) при блокировке
+    port: int = 8888             # устаревшее поле; используется adb_forward[1]
+    rotate_ip: bool = True       # смена IP через выбранный транспорт при блокировке
     adb_serial: str = ""         # серийник для adb (пусто — adb без -s)
     login: str = ""
     password: str = ""
-    server: str = ""             # адрес прокси (host или host:port) для парсера и SPFA; пусто = ssh.host
+    server: str = ""             # адрес сервера ADB для парсера и SPFA; пусто = 127.0.0.1
     ssh: SshConfig = field(default_factory=SshConfig)
     transport: str = "ssh"  # все команды телефона: ssh или adb (root)
+    adb_forward: List[int] = field(default_factory=lambda: [8888, 8888])
 
     def __post_init__(self):
         if self.transport not in ("ssh", "adb"):
             raise ValueError("own_mobile_proxy.transport должен быть ssh или adb")
+        if (not isinstance(self.adb_forward, (list, tuple)) or len(self.adb_forward) != 2
+                or any(type(port) is not int or not 1 <= port <= 65535 for port in self.adb_forward)):
+            raise ValueError("own_mobile_proxy.adb_forward должен быть [порт сервера, порт tinyproxy], оба от 1 до 65535")
+        self.adb_forward = list(self.adb_forward)
+        self.port = self.adb_forward[1]  # старое поле port: совместимость с GUI/старыми конфигами
 
 
 @dataclass

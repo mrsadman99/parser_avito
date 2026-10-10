@@ -137,10 +137,14 @@ UID определяется по владельцу домашнего ката
 При transport=adb SSH-соединения не открываются. Сетевые интерфейсы, Bind,
 LogFile и Syslog не изменяются: используется готовый tinyproxy.conf в Termux.
 При SSH перед запуском выполняется scripts/fix_interfaces_via_ssh.sh
-и настраиваются LogFile/Syslog. server задаёт адрес самого
-HTTP-прокси; при пустом server адрес по-прежнему берётся из ssh.host.
+и настраиваются LogFile/Syslog. server задаёт адрес сервера ADB с проброшенным
+TCP-портом adb_forward[0]; пустой server означает 127.0.0.1.
 
-SSH требует настроенного Termux sshd и секции ssh. ADB при этом не вызывается.
+SSH требует настроенного Termux sshd и секции ssh. TCP-проброс всегда использует ADB,
+даже при transport=ssh: adb_forward=[порт сервера, порт tinyproxy].
+Команда: adb -s SERIAL forward tcp:port1 tcp:port2. TCP обрабатывает сам ADB-сервер.
+При обычном запуске ADB без -a порт слушает localhost; nginx stream может
+подключаться к нему напрямую и публиковать свой внешний порт с TLS и ACL.
 Переключение режима полёта требует root и команды Android
 cmd connectivity airplane-mode enable/disable. Оба переключения выполняются
 фоновым заданием на телефоне, чтобы выключение режима полёта продолжилось при

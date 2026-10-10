@@ -143,12 +143,20 @@ def stop_own_proxy(dry_run: bool) -> None:
     use = getattr(own, "use", False)
     ssh_host = (getattr(getattr(own, "ssh", None), "host", "") or "").strip()
     if own is None or (own.transport == "ssh" and not ssh_host):
+        if not dry_run:
+            from utils.tinyproxy_forward import stop_forward
+            try:
+                stop_forward()
+            except Exception as err:
+                print(f"  proxy: не удалось остановить TCP-проброс: {err}")
+        else:
+            print("  proxy: TCP-проброс tinyproxy будет остановлен")
         if use:
             print("  proxy: ssh.host не задан — не могу остановить tinyproxy на телефоне")
         return
 
     if dry_run:
-        print("  proxy: tinyproxy (nohup) на телефоне будет остановлен")
+        print("  proxy: tinyproxy (nohup) на телефоне и TCP-проброс будут остановлены")
         return
 
     from utils.own_mobile_proxy import stop_proxy
