@@ -4,7 +4,7 @@ from dto import AvitoConfig
 from .proxy import NoProxy, ServerProxy, ExternalMobileProxy, OwnMobileProxy, Proxy
 
 
-def build_proxy(config: AvitoConfig) -> Proxy:
+def _build_proxy(config: AvitoConfig) -> Proxy:
     """
     Определяет тип прокси (свой мобильный / внешний мобильный / серверный / без прокси).
 
@@ -13,7 +13,7 @@ def build_proxy(config: AvitoConfig) -> Proxy:
     (перебираются по порядку, пока одна не сработает).
     """
     if config.own_mobile_proxy.use:
-        logger.info("Прокси определён как свой мобильный (tinyproxy на телефоне по SSH)")
+        logger.info("Прокси определён как свой мобильный (tinyproxy на телефоне через SSH/ADB)")
         return OwnMobileProxy(
             adb_serial=config.own_mobile_proxy.adb_serial or None,
             server=config.own_mobile_proxy.server or None,
@@ -22,6 +22,7 @@ def build_proxy(config: AvitoConfig) -> Proxy:
             login=config.own_mobile_proxy.login or None,
             password=config.own_mobile_proxy.password or None,
             ssh=config.own_mobile_proxy.ssh,
+            transport=config.own_mobile_proxy.transport,
         )
 
     change_urls = []
@@ -45,3 +46,11 @@ def build_proxy(config: AvitoConfig) -> Proxy:
         return ServerProxy(config.external_mobile_proxy.proxy_string)
 
     return NoProxy()
+
+
+def build_proxy(config: AvitoConfig) -> Proxy:
+    proxy = _build_proxy(config)
+    proxy.rotation_attempts = config.ip_rotation_attempts
+    proxy.rotation_timeout = config.ip_rotation_timeout
+    proxy.rotation_retry_delay = config.ip_rotation_retry_delay
+    return proxy

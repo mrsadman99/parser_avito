@@ -1,3 +1,5 @@
+import hashlib
+
 import requests
 from loguru import logger
 
@@ -10,6 +12,9 @@ class VKNotifier(Notifier):
     def __init__(self, vk_token: str, user_id: str | int):
         self.vk_token = vk_token
         self.user_id = user_id
+        self.delivery_key = "vk:" + hashlib.sha256(
+            str(user_id).encode()
+        ).hexdigest()
 
     def notify_message(self, message: str):
         def _send():
@@ -61,16 +66,14 @@ class VKNotifier(Notifier):
 
         response = send_with_retries(_send)
         if response is None:
-            logger.warning("VK: не удалось отправить сообщение")
-            return
+            raise RuntimeError("VK: не удалось отправить сообщение")
 
         body = response.json()
 
         if "error" in body:
             error_msg = body["error"].get("error_msg", "Unknown error")
             error_code = body["error"].get("error_code", 0)
-            logger.warning(f"VK API error {error_code}: {error_msg}")
-            return
+            raise RuntimeError(f"VK API error {error_code}: {error_msg}")
 
         logger.debug("Сообщение успешно отправлено")
 
@@ -87,7 +90,8 @@ class VKNotifier(Notifier):
             upload_server_response = requests.post(
                 "https://api.vk.com/method/photos.getMessagesUploadServer",
                 headers=headers,
-                params={"v": "5.199"}
+                params={"v": "5.199"},
+                timeout=30,
             ).json()
 
             if "error" in upload_server_response:
@@ -99,7 +103,8 @@ class VKNotifier(Notifier):
             photo_data = requests.get(photo_url, timeout=10).content
             upload_response = requests.post(
                 upload_url,
-                files={"photo": ("photo.jpg", photo_data, "image/jpeg")}
+                files={"photo": ("photo.jpg", photo_data, "image/jpeg")},
+                timeout=30,
             ).json()
 
             if not upload_response.get("photo") or upload_response.get("photo") == "[]":
@@ -114,7 +119,8 @@ class VKNotifier(Notifier):
                     "server": upload_response["server"],
                     "hash": upload_response["hash"],
                     "v": "5.199"
-                }
+                },
+                timeout=30,
             ).json()
 
             if "error" in save_response:

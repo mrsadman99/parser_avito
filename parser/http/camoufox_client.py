@@ -4,10 +4,10 @@ Camoufox — антидетект-браузер (форк Firefox) с нати�
 Здесь он используется с десктопным отпечатком и мобильным прокси
 (свой — tinyproxy на телефоне по SSH — или внешний сервис).
 """
-import time
-
 import requests
 from loguru import logger
+from parser.cancellation import Cancellation, ParseCancelled
+from parser.proxies.proxy import ProxyRotationError
 
 
 class CamoufoxResponse:
@@ -125,18 +125,23 @@ class CamoufoxClient:
     def close(self):
         self._close()
 
-    def get_current_ip(self) -> str | None:
+    def get_current_ip(self, cancellation: Cancellation | None = None) -> str | None:
         """Текущий внешний IP (через прокси, если он задан)."""
+        cancellation = cancellation or Cancellation()
         proxy = self.proxy.get_httpx_proxy() if self.proxy else None
         proxies = {"http": proxy, "https": proxy} if proxy else None
         for service in ("https://api.ipify.org?format=json", "https://ipinfo.io/ip"):
+            cancellation.checkpoint()
             try:
                 resp = requests.get(service, proxies=proxies, timeout=10)
+                cancellation.checkpoint()
                 if resp.status_code != 200:
                     continue
                 if "ipify" in service:
                     return resp.json().get("ip")
                 return resp.text.strip()
+            except ParseCancelled:
+                raise
             except Exception:
                 continue
         return None
@@ -146,20 +151,26 @@ class CamoufoxClient:
             self._launch()
         return self._page
 
-    def request(self, method: str, url: str, **kwargs) -> CamoufoxResponse:
+    def request(self, method: str, url: str, *, cancellation: Cancellation | None = None,
+                **kwargs) -> CamoufoxResponse:
+        cancellation = cancellation or Cancellation()
+        cancellation.checkpoint()
         last_exc = None
 
-        current_ip = self.get_current_ip()
+        current_ip = self.get_current_ip(cancellation=cancellation)
         logger.info(f"🦊 Camoufox {method.upper()} {url} — IP: {current_ip or 'не определён'}")
 
         for attempt in range(1, self.max_retries + 1):
+            cancellation.checkpoint()
             try:
                 page = self._ensure_page()
+                cancellation.checkpoint()
                 response = page.goto(
                     url,
                     wait_until="domcontentloaded",
                     timeout=self.timeout * 1000,
                 )
+                cancellation.checkpoint()
                 status = response.status if response else 0
                 body = response.text() if response else ""
 
@@ -172,22 +183,31 @@ class CamoufoxClient:
                     )
                     if self._block_attempts >= self.block_threshold:
                         logger.warning(
-                            "Достигнут лимит блокировок — меняем IP и перезапускаем браузер"
+                            "Достигнут лимит блокировок — пытаемся сменить IP"
                         )
-                        if self.proxy:
-                            try:
-                                self.proxy.handle_block()
-                            except Exception as err:
-                                logger.warning(f"Смена IP через прокси не удалась: {err}")
+                        try:
+                            rotated = self.proxy.rotate_with_retries(cancellation=cancellation) if self.proxy else False
+                        except (ParseCancelled, ProxyRotationError):
+                            raise
+                        except Exception as err:
+                            cancellation.checkpoint()
+                            raise ProxyRotationError("Ошибка при смене IP прокси") from err
+                        cancellation.checkpoint()
+                        if not rotated:
+                            logger.error("Смена IP не выполнена; перезапуск Camoufox отменён")
+                            raise ProxyRotationError("Не удалось сменить IP прокси")
                         self._reset()
                         self._block_attempts = 0
-                    time.sleep(self.retry_delay)
+                    cancellation.wait(self.retry_delay)
                     continue
 
                 self._block_attempts = 0
                 return CamoufoxResponse(text=body, status_code=status, url=str(url))
 
+            except (ParseCancelled, ProxyRotationError):
+                raise
             except Exception as err:
+                cancellation.checkpoint()
                 last_exc = err
                 self.error_count += 1
                 logger.warning(f"Camoufox request error (attempt {attempt}): {err}")
@@ -195,6 +215,6 @@ class CamoufoxClient:
                     self._reset()
                 except Exception:
                     pass
-                time.sleep(self.retry_delay)
+                cancellation.wait(self.retry_delay)
 
         raise RuntimeError("Camoufox: запросы были неуспешными") from last_exc

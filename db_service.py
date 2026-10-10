@@ -1,5 +1,7 @@
 import sqlite3
+import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from models import Item
 
@@ -22,6 +24,7 @@ _MIGRATION_COLUMNS = {
     "photo_url": "TEXT",
     "has_delivery": "INTEGER",
     "city": "TEXT",
+    "source_key": "TEXT NOT NULL DEFAULT ''",
 }
 
 
@@ -72,13 +75,51 @@ class SQLiteDBHandler:
             conn.commit()
 
     def _migrate(self):
-        """Добавляет недостающие колонки в старые БД и заполняет пустые даты."""
+        """Миграция к истории по подпискам; старые URL остаются отдельной историей."""
         with sqlite3.connect(self.db_name) as conn:
+            existing = {row[1] for row in conn.execute("PRAGMA table_info(viewed)")}
+            if "source_key" not in existing and conn.execute("SELECT 1 FROM viewed LIMIT 1").fetchone():
+                backup = Path(f"{self.db_name}.before-subscriptions-{time.time_ns()}.bak")
+                with sqlite3.connect(backup) as destination:
+                    conn.backup(destination)
+            conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
             existing = {row[1] for row in cursor.execute("PRAGMA table_info(viewed)")}
             for col, col_type in _MIGRATION_COLUMNS.items():
                 if col not in existing:
                     cursor.execute(f"ALTER TABLE viewed ADD COLUMN {col} {col_type}")
+            if "source_key" not in existing:
+                cursor.execute("UPDATE viewed SET source_key = COALESCE(source_url, '')")
+            indexes = {row[1] for row in cursor.execute("PRAGMA index_list(viewed)")}
+            if "viewed_subscription_event" not in indexes:
+                # Сохраняем последнюю запись каждого события, включая изменения цены.
+                cursor.execute("""
+                    DELETE FROM viewed WHERE rowid NOT IN (
+                        SELECT MAX(rowid) FROM viewed GROUP BY source_key, id, price
+                    )
+                """)
+                cursor.execute("""
+                    CREATE UNIQUE INDEX viewed_subscription_event
+                    ON viewed(source_key, id, price)
+                """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS viewed_source_url ON viewed(source_url)")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS notification_outbox (
+                    id INTEGER PRIMARY KEY,
+                    source_key TEXT NOT NULL,
+                    ad_id INTEGER NOT NULL,
+                    price INTEGER NOT NULL,
+                    recipient TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    sent INTEGER NOT NULL DEFAULT 0,
+                    retry_at REAL NOT NULL DEFAULT 0,
+                    UNIQUE(source_key, ad_id, price, recipient)
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS notification_outbox_pending
+                ON notification_outbox(recipient, retry_at) WHERE sent = 0
+            """)
             # старым строкам без даты ставим текущий момент (только NULL)
             cursor.execute(
                 "UPDATE viewed SET scanned_at = ? WHERE scanned_at IS NULL",
@@ -92,7 +133,7 @@ class SQLiteDBHandler:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO viewed
+                INSERT OR IGNORE INTO viewed
                     (id, price, scanned_at, description)
                 VALUES (?, ?, ?, ?)
                 """,
@@ -105,8 +146,10 @@ class SQLiteDBHandler:
             )
             conn.commit()
 
-    def add_record_from_page(self, ads: list[Item], source_url: str = None):
-        """Добавляет несколько записей в таблицу viewed (с привязкой к ссылке)."""
+    def add_record_from_page(self, ads: list[Item], source_url: str = None,
+                             source_key: str | None = None, recipients=()):
+        """Сохраняет результаты и очередь уведомлений одной транзакцией."""
+        source_key = source_key if source_key is not None else (source_url or "")
         now = _now_iso()
         records = [
             (
@@ -123,6 +166,7 @@ class SQLiteDBHandler:
                 ad.main_image_url(),
                 1 if ad.has_delivery() else 0,
                 ad.city(),
+                source_key,
             )
             for ad in ads
         ]
@@ -131,22 +175,74 @@ class SQLiteDBHandler:
             cursor = conn.cursor()
             cursor.executemany(
                 """
-                INSERT OR REPLACE INTO viewed
-                    (id, price, scanned_at, description, source_url, title, ad_url, sort_time, seller_rating, seller_reviews, photo_url, has_delivery, city)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO viewed
+                    (id, price, scanned_at, description, source_url, title, ad_url, sort_time, seller_rating, seller_reviews, photo_url, has_delivery, city, source_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 records,
             )
+            cursor.executemany("""
+                INSERT OR IGNORE INTO notification_outbox
+                    (source_key, ad_id, price, recipient, payload)
+                VALUES (?, ?, ?, ?, ?)
+            """, [
+                (source_key, ad.id, ad.priceDetailed.value, recipient, ad.model_dump_json())
+                for ad in ads for recipient in recipients
+            ])
             conn.commit()
 
-    def list_ads(self, source_url: str) -> list[dict]:
+    def list_ads(self, source_url: str, source_keys: list[str] | None = None) -> list[dict]:
         """Запарсенные объявления по исходной ссылке."""
         with sqlite3.connect(self.db_name) as conn:
             conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                "SELECT * FROM viewed WHERE source_url = ?", (source_url,)
-            ).fetchall()
+            query = "SELECT * FROM viewed WHERE source_url = ?"
+            params = [source_url]
+            if source_keys is not None:
+                if not source_keys:
+                    return []
+                query += f" AND source_key IN ({','.join('?' for _ in source_keys)})"
+                params.extend(source_keys)
+            rows = conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
+
+    def pending_notifications(self, recipients: list[str], limit: int = 100) -> list[dict]:
+        if not recipients:
+            return []
+        with sqlite3.connect(self.db_name) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(f"""
+                SELECT * FROM notification_outbox
+                WHERE sent = 0 AND retry_at <= ?
+                  AND recipient IN ({','.join('?' for _ in recipients)})
+                ORDER BY id LIMIT ?
+            """, [time.time(), *recipients, limit]).fetchall()
+        return [dict(row) for row in rows]
+
+    def finish_notification(self, notification_id: int, success: bool) -> None:
+        with sqlite3.connect(self.db_name) as conn:
+            conn.execute(
+                "UPDATE notification_outbox SET sent = ?, retry_at = ? WHERE id = ?",
+                (int(success), 0 if success else time.time() + 60, notification_id),
+            )
+
+    def claim_notification(self, recipients: list[str]) -> dict | None:
+        """Резервирует одну отправку; после падения процесса она вернётся через 10 минут."""
+        if not recipients:
+            return None
+        with sqlite3.connect(self.db_name) as conn:
+            conn.row_factory = sqlite3.Row
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(f"""
+                SELECT * FROM notification_outbox
+                WHERE sent = 0 AND retry_at <= ?
+                  AND recipient IN ({','.join('?' for _ in recipients)})
+                ORDER BY id LIMIT 1
+            """, [time.time(), *recipients]).fetchone()
+            if row is None:
+                return None
+            conn.execute("UPDATE notification_outbox SET retry_at = ? WHERE id = ?",
+                         (time.time() + 600, row["id"]))
+        return dict(row)
 
     # Поля, которые можно перезаписывать из detail-страницы
     _REFRESH_FIELDS = (
@@ -182,7 +278,7 @@ class SQLiteDBHandler:
         values = [fields[col] for col in cols]
         with sqlite3.connect(self.db_name) as conn:
             cursor = conn.execute(
-                f"UPDATE viewed SET {assignments} WHERE id = ?", values + [ad_id]
+                f"UPDATE OR REPLACE viewed SET {assignments} WHERE id = ?", values + [ad_id]
             )
             conn.commit()
             return cursor.rowcount
@@ -194,12 +290,12 @@ class SQLiteDBHandler:
             conn.commit()
             return cursor.rowcount
 
-    def record_exists(self, record_id, price):
+    def record_exists(self, record_id, price, source_key: str = ""):
         """Проверяет, существует ли запись с заданными id и price."""
         with sqlite3.connect(self.db_name) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT 1 FROM viewed WHERE id = ? AND price = ?",
-                (record_id, price),
+                "SELECT 1 FROM viewed WHERE id = ? AND price = ? AND source_key = ?",
+                (record_id, price, source_key),
             )
             return cursor.fetchone() is not None

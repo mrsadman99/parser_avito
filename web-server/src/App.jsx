@@ -428,7 +428,10 @@ export default function App() {
     setView('ads')
     setAdsFilters(ADS_FILTERS_EMPTY)
     try {
-      setAds(await api(`/api/ads?url=${encodeURIComponent(link.url)}`, { token }))
+      const query = link.id != null
+        ? `link_id=${link.id}`
+        : `url=${encodeURIComponent(link.url)}`
+      setAds(await api(`/api/ads?${query}`, { token }))
     } catch (err) {
       setError(err.message)
     }
@@ -551,7 +554,7 @@ export default function App() {
                 </thead>
                 <tbody>
                   {sortedAds.map((ad) => (
-                    <tr key={`${ad.id}:${ad.price}`}>
+                    <tr key={`${ad.source_key}:${ad.id}:${ad.price}`}>
                       <td>{ad.photo_url ? <img className="ad-thumb" src={ad.photo_url} alt="" /> : ''}</td>
                       <td>{ad.title}</td>
                       <td>{ad.price}</td>

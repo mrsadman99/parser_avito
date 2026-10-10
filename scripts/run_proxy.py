@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Запуск ТОЛЬКО своего мобильного прокси — без парсера, API и веб-сервера.
 
-Свой мобильный прокси: tinyproxy на телефоне; запускается по SSH через `nohup`
+Свой мобильный прокси: tinyproxy на телефоне; запускается через выбранный транспорт SSH/ADB через `nohup`
 (без tmux) и живёт независимо от SSH-сессии. При запуске старый tinyproxy
 останавливается, поэтому повторный запуск = перезапуск.
 
@@ -54,7 +54,7 @@ def _verify(proxy: OwnMobileProxy, attempts: int = 10, delay: float = 2.0) -> bo
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Запуск только своего мобильного прокси (tinyproxy на телефоне по SSH)"
+        description="Запуск только своего мобильного прокси (tinyproxy на телефоне через выбранный транспорт SSH/ADB)"
     )
     parser.add_argument("--config", default="config.toml", help="Путь к config.toml")
     parser.add_argument("--device-log", default=DEFAULT_DEVICE_LOG,

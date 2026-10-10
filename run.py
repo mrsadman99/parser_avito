@@ -8,7 +8,7 @@ run.py запускает всё в фоне и сразу завершаетс�
   * false (по умолчанию) — локальные tmux-сессии: api, web (--dev), parser;
   * true — независимые фоновые процессы, логи в logs/api.log и logs/parser.log.
 
-Свой мобильный прокси ([avito.own_mobile_proxy]) запускается на телефоне по SSH
+Свой мобильный прокси ([avito.own_mobile_proxy]) запускается на телефоне через SSH/ADB
 через `nohup` (без tmux) и живёт независимо от SSH-сессии.
 
     python run.py          # production: сборка фронта + API + прокси + парсер
@@ -47,8 +47,6 @@ def ensure_web_deps() -> None:
 
 
 def build_frontend() -> None:
-    if (WEB_DIR / "dist").exists():
-        return
     ensure_web_deps()
     print("Собираю фронтенд (npm run build)...")
     subprocess.run(["npm", "run", "build"], cwd=WEB_DIR, check=True)

@@ -5,7 +5,7 @@
   * фоновые (detached_mode) процессы api / web / parser — по pid-файлам logs/*.pid
     (убивается вся группа процессов);
   * tmux-сессии (обычный режим): parser, api, web;
-  * свой мобильный прокси: tinyproxy на телефоне (nohup, по SSH), если включён
+  * свой мобильный прокси: tinyproxy на телефоне (nohup, через выбранный транспорт SSH/ADB), если включён
     [avito.own_mobile_proxy].use.
 
 Запуск:
@@ -128,10 +128,10 @@ def stop_tmux(name: str, dry_run: bool) -> None:
 
 
 def stop_own_proxy(dry_run: bool) -> None:
-    """Остановка своего мобильного прокси: tinyproxy на телефоне (nohup, по SSH).
+    """Остановка своего мобильного прокси: tinyproxy на телефоне (nohup, через выбранный транспорт SSH/ADB).
 
     Чистит процесс даже если [avito.own_mobile_proxy].use = false — достаточно
-    заданного ssh.host (чтобы не оставался запущенный tinyproxy).
+    настроенного транспорта (чтобы не оставался запущенный tinyproxy).
     """
     try:
         config = load_avito_config("config.toml")
@@ -142,7 +142,7 @@ def stop_own_proxy(dry_run: bool) -> None:
     own = getattr(config, "own_mobile_proxy", None)
     use = getattr(own, "use", False)
     ssh_host = (getattr(getattr(own, "ssh", None), "host", "") or "").strip()
-    if not ssh_host:
+    if own is None or (own.transport == "ssh" and not ssh_host):
         if use:
             print("  proxy: ssh.host не задан — не могу остановить tinyproxy на телефоне")
         return

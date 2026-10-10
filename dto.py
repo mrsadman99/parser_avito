@@ -1,6 +1,13 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
+import hashlib
+import math
+
+
+def web_link_key(link_id: int, url: str) -> str:
+    """История подписки начинается заново при изменении её URL."""
+    return f"web:{link_id}:{hashlib.sha256(url.encode()).hexdigest()}"
 
 
 @dataclass
@@ -28,6 +35,14 @@ class LinkConfig:
     start_date: Optional[str] = None          # дата "YYYY-MM-DD", с которой искать объявления
     ignore_reserv: bool = True                # пропускать «Зарезервировано»
     ignore_promotion: bool = False            # пропускать продвигаемые
+
+
+@dataclass
+class ParseTarget:
+    """Независимая подписка: URL и фильтры конкретной записи ссылки."""
+    url: str
+    config: LinkConfig
+    revision: int = 0
 
 
 @dataclass
@@ -60,6 +75,11 @@ class OwnMobileProxyConfig:
     password: str = ""
     server: str = ""             # адрес прокси (host или host:port) для парсера и SPFA; пусто = ssh.host
     ssh: SshConfig = field(default_factory=SshConfig)
+    transport: str = "ssh"  # все команды телефона: ssh или adb (root)
+
+    def __post_init__(self):
+        if self.transport not in ("ssh", "adb"):
+            raise ValueError("own_mobile_proxy.transport должен быть ssh или adb")
 
 
 @dataclass
@@ -114,4 +134,17 @@ class AvitoConfig:
     retry_delay: int = 5
     timeout: int = 20
     block_threshold: int = 3
+    ip_rotation_attempts: int = 3
+    ip_rotation_timeout: float = 90.0  # вся попытка, включая ADB/SSH, сек
+    ip_rotation_retry_delay: float = 5.0
     open_full_ad: bool = False
+
+    def __post_init__(self):
+        if type(self.ip_rotation_attempts) is not int or self.ip_rotation_attempts < 1:
+            raise ValueError("ip_rotation_attempts должен быть целым числом >= 1")
+        for name, minimum in (("ip_rotation_timeout", 0), ("ip_rotation_retry_delay", 0)):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"{name} должен быть конечным числом")
+            if value < minimum or (name == "ip_rotation_timeout" and value == 0):
+                raise ValueError(f"Некорректное значение {name}: {value}")

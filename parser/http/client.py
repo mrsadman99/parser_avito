@@ -1,12 +1,12 @@
 """
 Клиент для запросов парсера (curl_cffi)
 """
-import time
 from curl_cffi import requests
 from loguru import logger
 
 from parser.cookies.base import CookiesProvider
-from parser.proxies.proxy import Proxy
+from parser.proxies.proxy import Proxy, ProxyRotationError
+from parser.cancellation import Cancellation, ParseCancelled
 
 
 class HttpClient:
@@ -79,8 +79,9 @@ class HttpClient:
         self._client.close()
         self._client = self._build_client()
 
-    def get_current_ip(self) -> str | None:
+    def get_current_ip(self, cancellation: Cancellation | None = None) -> str | None:
         """Определяет текущий внешний IP (через настроенный прокси, если он есть)."""
+        cancellation = cancellation or Cancellation()
         proxy = self.proxy.get_httpx_proxy() if self.proxy else None
         proxies = {"http": proxy, "https": proxy} if proxy else None
         services = (
@@ -88,6 +89,7 @@ class HttpClient:
             "https://ipinfo.io/ip",
         )
         for service in services:
+            cancellation.checkpoint()
             try:
                 resp = requests.get(
                     service,
@@ -95,22 +97,28 @@ class HttpClient:
                     timeout=10,
                     impersonate="chrome",
                 )
+                cancellation.checkpoint()
                 if resp.status_code != 200:
                     continue
                 if "ipify" in service:
                     return resp.json().get("ip")
                 return resp.text.strip()
+            except ParseCancelled:
+                raise
             except Exception:
                 continue
         return None
 
-    def request(self, method: str, url: str, **kwargs):
+    def request(self, method: str, url: str, *, cancellation: Cancellation | None = None, **kwargs):
+        cancellation = cancellation or Cancellation()
+        cancellation.checkpoint()
         last_exc = None
 
-        current_ip = self.get_current_ip()
+        current_ip = self.get_current_ip(cancellation=cancellation)
         logger.info(f"🌐 Запрос {method.upper()} {url} — IP: {current_ip or 'не определён'}")
 
         for attempt in range(1, self.max_retries + 1):
+            cancellation.checkpoint()
             try:
                 response = self._client.request(
                     method,
@@ -118,6 +126,7 @@ class HttpClient:
                     timeout=self.timeout,
                     **kwargs,
                 )
+                cancellation.checkpoint()
 
                 if self.cookies:
                     self.cookies.update(response)
@@ -133,20 +142,33 @@ class HttpClient:
 
                     if self._block_attempts >= self.block_threshold:
                         logger.warning("Достигнут лимит блокировок, запускается обработка")
+                        cancellation.checkpoint()
+                        try:
+                            rotated = self.proxy.rotate_with_retries(cancellation=cancellation)
+                        except (ParseCancelled, ProxyRotationError):
+                            raise
+                        except Exception as err:
+                            cancellation.checkpoint()
+                            raise ProxyRotationError("Ошибка при смене IP прокси") from err
+                        cancellation.checkpoint()
+                        if not rotated:
+                            logger.error("Смена IP не выполнена; восстановление HTTP-сессии отменено")
+                            raise ProxyRotationError("Не удалось сменить IP прокси")
                         if self.cookies:
                             self.cookies.handle_block()
-                        self.proxy.handle_block()
+                        cancellation.checkpoint()
                         if self.cookies:
                             self.cookies.handle_ip_change()
+                        cancellation.checkpoint()
                         self._reset_client()
-                        new_ip = self.get_current_ip()
+                        new_ip = self.get_current_ip(cancellation=cancellation)
                         if new_ip:
                             logger.success(f"Прокси обновлён, новый IP: {new_ip}")
                         else:
                             logger.warning("Не удалось определить IP после смены прокси")
                         self._block_attempts = 0
 
-                    time.sleep(self.retry_delay)
+                    cancellation.wait(self.retry_delay)
                     continue
 
                 self._block_attempts = 0
@@ -154,10 +176,11 @@ class HttpClient:
                 return response
 
             except requests.RequestsError as e:
+                cancellation.checkpoint()
                 last_exc = e
                 self._block_attempts = 0
                 self.error_count += 1
                 logger.warning(f"Request error (attempt {attempt}): {e}")
-                time.sleep(self.retry_delay)
+                cancellation.wait(self.retry_delay)
 
         raise RuntimeError("HTTP запросы были неуспешными") from last_exc

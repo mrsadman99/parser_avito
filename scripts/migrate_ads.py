@@ -55,13 +55,14 @@ def assign_row(url: str, rowid: int) -> None:
     with _connect(DB) as conn:
         conn.execute(
             """
-            UPDATE viewed SET
+            UPDATE OR REPLACE viewed SET
                 source_url = ?,
+                source_key = ?,
                 ad_url = CASE WHEN ad_url IS NULL OR ad_url = '' THEN 'https://www.avito.ru/' || id ELSE ad_url END,
                 title = CASE WHEN title IS NULL OR title = '' THEN substr(COALESCE(description, ''), 1, 120) ELSE title END
             WHERE rowid = ?
             """,
-            (url, rowid),
+            (url, url, rowid),
         )
         conn.commit()
 

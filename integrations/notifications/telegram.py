@@ -1,3 +1,5 @@
+import hashlib
+
 import requests
 from loguru import logger
 
@@ -12,6 +14,9 @@ class TelegramNotifier(Notifier):
         self.bot_token = bot_token
         self.chat_id = chat_id
         self.proxy = self.get_proxy(proxy=proxy)
+        self.delivery_key = "telegram:" + hashlib.sha256(
+            f"{bot_token.split(':', 1)[0]}:{chat_id}".encode()
+        ).hexdigest()
 
     @staticmethod
     def get_proxy(proxy: str = None):

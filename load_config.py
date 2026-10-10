@@ -49,6 +49,9 @@ def _coerce_own_mobile_proxy(raw) -> OwnMobileProxyConfig:
         return raw
     if not isinstance(raw, dict):
         raw = {}
+    raw = dict(raw)
+    if "transport" not in raw and "restart_via" in raw:
+        raw["transport"] = raw["restart_via"]
     allowed = {f.name for f in fields(OwnMobileProxyConfig) if f.name != "ssh"}
     config = OwnMobileProxyConfig(**{k: v for k, v in raw.items() if k in allowed})
     config.ssh = _coerce(SshConfig, raw.get("ssh"))

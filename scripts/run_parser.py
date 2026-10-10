@@ -9,6 +9,7 @@
     python scripts/run_parser.py
 """
 import sys
+import multiprocessing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -24,8 +25,13 @@ def main():
 
     from parser_cls import AvitoParse
 
-    AvitoParse(config, links_provider=store.get_all_links).parse()
+    parser = AvitoParse(config, links_provider=store.get_all_links)
+    try:
+        parser.parse()
+    finally:
+        parser.close()
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()

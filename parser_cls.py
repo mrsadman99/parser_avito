@@ -3,6 +3,7 @@ import json
 import random
 import re
 import threading
+import multiprocessing
 import time
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -12,17 +13,19 @@ from pydantic import ValidationError
 
 from common_data import HEADERS
 from db_service import SQLiteDBHandler, _now_iso
-from dto import Proxy, AvitoConfig
+from dto import Proxy, AvitoConfig, ParseTarget
 from filters.ads_filter import AdsFilter
 from hide_private_data import log_config
 from integrations.notifications.factory import build_notifier
 from load_config import load_avito_config
 from models import ItemsResponse, Item
 from parser.cookies.factory import build_cookies_provider
+from parser.cancellation import Cancellation, ParseCancelled, cancellable_lock
 from parser.export.factory import build_result_storage
 from parser.http.client import HttpClient
 from parser.http.camoufox_client import CamoufoxClient
 from parser.proxies.proxy_factory import build_proxy
+from parser.proxies.proxy import ProxyRotationError
 from parser.url_converter import AvitoUrlConverter
 from utils.parse_phone import ParsePhone
 from utils.own_mobile_proxy import ensure_own_mobile_proxy
@@ -48,12 +51,13 @@ class RequestThrottle:
         self._lock = threading.Lock()
         self._first = True
 
-    def run(self, fn, *args, **kwargs):
-        with self._lock:
-            if self._first:
-                self._first = False
-            else:
-                time.sleep(random.uniform(self.min_delay, self.max_delay))
+    def run(self, fn, *args, cancellation=None, **kwargs):
+        cancellation = cancellation or Cancellation()
+        with cancellable_lock(self._lock, cancellation):
+            if not self._first:
+                cancellation.wait(random.uniform(self.min_delay, self.max_delay))
+            cancellation.checkpoint()
+            self._first = False
             return fn(*args, **kwargs)
 
 
@@ -74,6 +78,8 @@ class AvitoParse:
         self.result_storage = None
         self.url_converter = AvitoUrlConverter()
         self.stop_event = stop_event
+        self._shutdown = threading.Event()
+        self._fatal_error = None
         self.headers = HEADERS
         self.good_request_count = 0
         self.bad_request_count = 0
@@ -103,18 +109,19 @@ class AvitoParse:
         log_config(config=self.config, version=VERSION)
 
     def _current_links(self):
-        """Актуальный набор ссылок: из конфига + из внешнего провайдера (веб).
-
-        При совпадении URL приоритет у провайдера (ссылки, управляемые через веб).
-        """
-        links = dict(self.config.links or {})
+        """Подписки из TOML и веба, каждая со своими фильтрами и историей."""
+        links = {url: ParseTarget(url, config) for url, config in (self.config.links or {}).items()}
         if self.links_provider is not None:
             try:
                 provider_links = self.links_provider()
-                if provider_links:
-                    links.update(provider_links)
+                self._provider_links = {
+                    key: value if isinstance(value, ParseTarget) else ParseTarget(key, value)
+                    for key, value in (provider_links or {}).items()
+                }
             except Exception as err:
                 logger.warning(f"Не удалось получить ссылки из провайдера: {err}")
+            # Ошибка чтения БД не означает удаление всех подписок.
+            links.update(getattr(self, "_provider_links", {}))
         return links
 
     def get_proxy_obj(self) -> Proxy | None:
@@ -128,36 +135,41 @@ class AvitoParse:
         return None
 
     def _is_stopped(self) -> bool:
-        return self.stop_event is not None and self.stop_event.is_set()
+        shutdown = getattr(self, "_shutdown", None)
+        return ((shutdown is not None and shutdown.is_set())
+                or (self.stop_event is not None and self.stop_event.is_set()))
 
     def _sleep_interruptible(self, seconds: float) -> None:
         """Спит указанное время, прерываясь по stop_event."""
         if seconds <= 0:
             return
-        if self.stop_event is None:
-            time.sleep(seconds)
-            return
-        end = time.time() + seconds
-        while time.time() < end:
-            if self.stop_event.is_set():
+        end = time.monotonic() + seconds
+        while not self._is_stopped():
+            remaining = end - time.monotonic()
+            if remaining <= 0:
                 return
-            time.sleep(min(1.0, end - time.time()))
+            time.sleep(min(0.1, remaining))
 
-    def _request(self, url: str):
+    def _request(self, url: str, cancellation=None):
         """Единый запрос к Avito через общий троттлинг (общая случайная задержка)."""
-        if self.camoufox:
-            return self.throttle.run(self.camoufox.request, "GET", url)
-        return self.throttle.run(self.http.request, "GET", url)
+        cancellation = cancellation or Cancellation(self._is_stopped)
+        client = self.camoufox or self.http
+        return self.throttle.run(
+            lambda: client.request("GET", url, cancellation=cancellation),
+            cancellation=cancellation,
+        )
 
-    def fetch_data(self, url: str) -> str | None:
+    def fetch_data(self, url: str, cancellation=None) -> str | None:
         if self._is_stopped():
             return None
 
         try:
-            response = self._request(url)
+            response = self._request(url, cancellation=cancellation)
             self.good_request_count += 1
             return response.text
 
+        except (ParseCancelled, ProxyRotationError):
+            raise
         except Exception as err:
             self.bad_request_count += 1
             logger.warning(f"Ошибка при запросе {url}: {err}")
@@ -177,15 +189,17 @@ class AvitoParse:
             (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
         )
 
-    def fetch_api_data(self, api_url: str, page: int) -> dict | None:
+    def fetch_api_data(self, api_url: str, page: int, cancellation=None) -> dict | None:
         if self._is_stopped():
             return None
 
         page_url = self._api_url_for_page(api_url, page)
         try:
-            response = self._request(page_url)
+            response = self._request(page_url, cancellation=cancellation)
             self.good_request_count += 1
             return response.json()
+        except (ParseCancelled, ProxyRotationError):
+            raise
         except Exception as err:
             self.bad_request_count += 1
             logger.warning(f"Ошибка при запросе API {page_url}: {err}")
@@ -238,68 +252,87 @@ class AvitoParse:
 
         workers: dict[str, threading.Thread] = {}
 
-        # Шедулер: следит за активными ссылками, запускает/убирает воркеры.
-        while not self._is_stopped():
-            links = self._current_links()
+        notification_stop = threading.Event()
+        threading.Thread(target=self._notification_cycle, args=(notification_stop,), daemon=True).start()
+        try:
+            # Шедулер не ждёт медленные отправки в мессенджеры.
+            while not self._is_stopped():
+                links = self._current_links()
 
-            for source_url, link_cfg in links.items():
-                if source_url not in workers:
-                    t = threading.Thread(
-                        target=self._link_cycle,
-                        args=(source_url, link_cfg),
-                        daemon=True,
-                    )
-                    t.start()
-                    workers[source_url] = t
+                for source_key, target in links.items():
+                    if source_key not in workers:
+                        t = threading.Thread(
+                            target=self._link_cycle,
+                            args=(source_key, target),
+                            daemon=True,
+                        )
+                        t.start()
+                        workers[source_key] = t
 
-            for source_url in list(workers):
-                if not workers[source_url].is_alive():
-                    del workers[source_url]
+                for source_key in list(workers):
+                    if not workers[source_key].is_alive():
+                        del workers[source_key]
 
-            self._sleep_interruptible(3.0)
+                self._sleep_interruptible(3.0)
+        finally:
+            notification_stop.set()
+            self._shutdown.set()
+
+        if self._fatal_error is not None:
+            raise self._fatal_error
 
         logger.info(
             f"Хорошие запросы: {self.good_request_count}шт, "
             f"плохие: {self.bad_request_count}шт"
         )
 
-    def _link_cycle(self, source_url: str, link_cfg):
-        """Цикл обработки одной ссылки: полный обход, затем пауза pause_general.
-
-        После каждого цикла ссылка перечитывается: если её удалили — воркер
-        завершается, если настройки поменялись — применяются новые.
-        """
-        try:
-            api_url = self.url_converter.convert(source_url)
-        except Exception as err:
-            logger.error(
-                f"Не удалось преобразовать ссылку Avito в API URL "
-                f"{source_url}: {err}"
-            )
-            return
-
+    def _link_cycle(self, source_key: str, target: ParseTarget):
+        """Обход и пауза отменяются при изменении версии или удалении подписки."""
         while not self._is_stopped():
             current_links = self._current_links()
-            if source_url not in current_links:
+            if source_key not in current_links:
                 logger.info(
-                    f"🔗 Ссылка удалена, завершаю работу: {self._query_label(source_url)}"
+                    f"🔗 Ссылка удалена, завершаю работу: {self._query_label(target.url)}"
                 )
                 return
-            link_cfg = current_links[source_url]
-
-            self._process_link(source_url, link_cfg, api_url)
-
-            if self._is_stopped():
-                return
-            logger.info(
-                f"Пауза до следующего цикла ссылки {self._query_label(source_url)}: "
-                f"{self.config.pause_general} сек."
+            target = current_links[source_key]
+            cancellation = Cancellation(
+                lambda: self._is_stopped() or self._current_links().get(source_key) != target
             )
-            self._sleep_interruptible(self.config.pause_general)
+            try:
+                api_url = self.url_converter.convert(target.url, cancellation=cancellation)
+                self._process_link(target.url, target.config, api_url,
+                                   source_key=source_key, cancellation=cancellation)
+                logger.info(
+                    f"Пауза до следующего цикла ссылки {self._query_label(target.url)}: "
+                    f"{self.config.pause_general} сек."
+                )
+                cancellation.wait(self.config.pause_general)
+            except ProxyRotationError as err:
+                self._fatal_error = err
+                self._shutdown.set()
+                logger.critical(f"Все попытки смены IP неуспешны, завершаю парсер: {err}")
+                return
+            except ParseCancelled:
+                logger.info(
+                    f"Обход прерван: {self._query_label(target.url)}; "
+                    "проверяю актуальные настройки ссылки"
+                )
+                # Без pause_general: новые фильтры начинают обход с первой страницы.
+                continue
+            except Exception as err:
+                if self._is_stopped() or self._current_links().get(source_key) != target:
+                    continue
+                logger.exception(f"Ошибка обхода {self._query_label(target.url)}: {err}")
+                return
 
-    def _process_link(self, source_url: str, link_cfg, api_url: str):
+    def _process_link(self, source_url: str, link_cfg, api_url: str, source_key: str | None = None,
+                      cancellation: Cancellation | None = None):
         """Один полный обход ссылки: все страницы + фильтрация + сохранение."""
         query_label = self._query_label(source_url)
+        cancellation = cancellation or Cancellation(self._is_stopped)
+        cancellation.checkpoint()
+        source_key = source_key if source_key is not None else source_url
         if link_cfg.min_price is not None or link_cfg.max_price is not None:
             lo = link_cfg.min_price if link_cfg.min_price is not None else 0
             hi = link_cfg.max_price if link_cfg.max_price is not None else "∞"
@@ -310,11 +343,11 @@ class AvitoParse:
         logger.info(f"🔍 Сканирую ссылку: {query_label}")
 
         for page in range(1, self.config.count + 1):
-            logger.info(f"page={page}")
-            if self._is_stopped():
-                return
+            cancellation.checkpoint()
+            logger.info(f"Ссылка {query_label}: page={page}")
 
-            json_data = self.fetch_api_data(api_url=api_url, page=page)
+            json_data = self.fetch_api_data(api_url=api_url, page=page, cancellation=cancellation)
+            cancellation.checkpoint()
             if not json_data:
                 logger.warning(f"Не удалось получить данные API для {query_label}")
                 continue
@@ -351,19 +384,19 @@ class AvitoParse:
                 start_date=link_cfg.start_date,
                 ignore_reserv=link_cfg.ignore_reserv,
                 ignore_promotion=link_cfg.ignore_promotion,
+                source_key=source_key,
             )
 
-            filtered_ads = self.open_full_ad(ads=filtered_ads)
-
-            try:
-                self.notifier.notify_many(ads=filtered_ads)
-            except Exception as err:
-                logger.warning(f"Ошибка при отправке уведомлений: {err}")
+            cancellation.checkpoint()
+            filtered_ads = self.open_full_ad(ads=filtered_ads, cancellation=cancellation)
 
             filtered_ads = self.parse_phone(ads=filtered_ads)
 
+            cancellation.checkpoint()
             if filtered_ads:
-                self.__save_viewed(ads=filtered_ads, source_url=source_url)
+                self.__save_viewed(ads=filtered_ads, source_url=source_url, source_key=source_key)
+                # Завершённая страница попадает в Excel даже при отмене следующей.
+                self.result_storage.save(filtered_ads)
                 ads_in_link.extend(filtered_ads)
 
         status = "✅ успешно" if link_got_data else "❌ не удалось"
@@ -373,11 +406,31 @@ class AvitoParse:
             f"статус: {status}"
         )
 
-        if ads_in_link:
-            logger.info(f"Сохраняю {len(ads_in_link)} объявлений")
-            self.result_storage.save(ads_in_link)
-        else:
-            logger.info("Сохранять нечего")
+    def _notification_cycle(self, stop_event):
+        while not stop_event.is_set() and not self._is_stopped():
+            try:
+                self._deliver_pending_notifications(stop_event)
+            except Exception as err:
+                logger.warning(f"Ошибка обработки очереди уведомлений: {err}")
+            stop_event.wait(3.0)
+
+    def _deliver_pending_notifications(self, stop_event=None):
+        """Доставляет сохранённые объявления, повторяя только неудачные отправки."""
+        targets = self.notifier.delivery_targets()
+        for _ in range(100):
+            if self._is_stopped() or (stop_event is not None and stop_event.is_set()):
+                return
+            entry = self.db_handler.claim_notification(list(targets))
+            if entry is None:
+                return
+            try:
+                ad = Item.model_validate_json(entry["payload"])
+                targets[entry["recipient"]].notify(ad=ad)
+            except Exception as err:
+                logger.warning(f"Уведомление {entry['id']} не доставлено, повтор через 60 сек.: {err}")
+                self.db_handler.finish_notification(entry["id"], success=False)
+            else:
+                self.db_handler.finish_notification(entry["id"], success=True)
 
     def close(self):
         """Освобождает ресурсы (Camoufox-браузер)."""
@@ -416,10 +469,10 @@ class AvitoParse:
 
     def filter_ads(self, ads: list[Item], min_price=None, max_price=None,
                    white_list=None, black_list=None, geo=None, start_date=None,
-                   ignore_reserv=True, ignore_promotion=False) -> list[Item]:
+                   ignore_reserv=True, ignore_promotion=False, source_key="") -> list[Item]:
         # Свежий экземпляр на вызов: AdsFilter.apply() хранит параметры ссылки
         # в self.*, поэтому общий экземпляр нельзя переиспользовать между потоками.
-        ads_filter = AdsFilter(config=self.config, is_viewed_fn=self.is_viewed)
+        ads_filter = AdsFilter(config=self.config, is_viewed_fn=lambda ad: self.is_viewed(ad, source_key))
         return ads_filter.apply(
             ads,
             min_price=min_price,
@@ -463,28 +516,33 @@ class AvitoParse:
                     ad.seller_reviews = int(digits)
         return ads
 
-    def open_full_ad(self, ads: list[Item]) -> list[Item]:
+    def open_full_ad(self, ads: list[Item], cancellation: Cancellation | None = None) -> list[Item]:
         """Открывает страницу каждого объявления и подтягивает ПОЛНОЕ описание.
 
         В выдаче API каталога описание обрезано (~250 символов), поэтому для
         полного текста делаем отдельный запрос на страницу объявления.
         """
+        cancellation = cancellation or Cancellation(self._is_stopped)
+        cancellation.checkpoint()
         if not self.config.open_full_ad:
             return ads
 
         logger.info("Начинаю парсинг полных описаний")
         for ad in ads:
             try:
-                if self.stop_event and self.stop_event.is_set():
-                    break
-                html_code_full_page = self.fetch_data(url=f"https://www.avito.ru{ad.urlPath}")
+                cancellation.checkpoint()
+                html_code_full_page = self.fetch_data(url=f"https://www.avito.ru{ad.urlPath}",
+                                                       cancellation=cancellation)
+                cancellation.checkpoint()
                 if not html_code_full_page:
                     continue
                 full_description = self._extract_description(html=html_code_full_page)
                 if full_description:
                     ad.description = full_description
                 delay = random.uniform(0.1, 0.9)
-                time.sleep(delay)
+                cancellation.wait(delay)
+            except (ParseCancelled, ProxyRotationError):
+                raise
             except Exception as err:
                 logger.warning(f"Ошибка при парсинге описания {ad.urlPath}: {err}")
                 continue
@@ -559,22 +617,24 @@ class AvitoParse:
             return match.group(1)
         return None
 
-    def is_viewed(self, ad: Item) -> bool:
+    def is_viewed(self, ad: Item, source_key: str = "") -> bool:
         """Проверяет, смотрели мы это или нет"""
-        return self.db_handler.record_exists(record_id=ad.id, price=ad.priceDetailed.value)
+        return self.db_handler.record_exists(record_id=ad.id, price=ad.priceDetailed.value,
+                                             source_key=source_key)
 
-    def __save_viewed(self, ads: list[Item], source_url: str = None) -> None:
+    def __save_viewed(self, ads: list[Item], source_url: str = None, source_key: str | None = None) -> None:
         """Сохраняет просмотренные объявления и ставит дату сканирования (UTC)."""
-        try:
-            now = _now_iso()
-            for ad in ads:
-                ad.scanned_at = now
-            self.db_handler.add_record_from_page(ads=ads, source_url=source_url)
-        except Exception as err:
-            logger.info(f"При сохранении в БД ошибка {err}")
+        now = _now_iso()
+        for ad in ads:
+            ad.scanned_at = now
+        self.db_handler.add_record_from_page(
+            ads=ads, source_url=source_url, source_key=source_key,
+            recipients=list(self.notifier.delivery_targets()),
+        )
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     try:
         config = load_avito_config("config.toml")
     except Exception as err:
@@ -595,9 +655,15 @@ if __name__ == "__main__":
             "min_delay/max_delay и pause_general, чтобы снизить риск блокировок."
         )
 
+    parser = None
     try:
-        AvitoParse(config).parse()
+        parser = AvitoParse(config)
+        parser.parse()
     except KeyboardInterrupt:
         logger.info("Парсинг остановлен")
     except Exception as err:
         logger.exception(err)
+        raise SystemExit(1)
+    finally:
+        if parser is not None:
+            parser.close()

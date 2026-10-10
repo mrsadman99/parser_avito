@@ -1,4 +1,3 @@
-import time
 from abc import ABC, abstractmethod
 
 import requests
@@ -7,7 +6,19 @@ from loguru import logger
 from proxy_helpers import build_proxies_dict, BROWSER_USER_AGENT
 
 
+class ProxyRotationError(RuntimeError):
+    """Смена IP не выполнена; восстановление сессии продолжать нельзя."""
+
+
 class Proxy(ABC):
+    rotation_attempts = 3
+    rotation_timeout = 90.0
+    rotation_retry_delay = 5.0
+
+    def rotate_with_retries(self, cancellation=None):
+        from parser.proxies.rotation import rotate_with_retries
+        return rotate_with_retries(self, cancellation=cancellation)
+
     @abstractmethod
     def get_httpx_proxy(self) -> dict | None:
         pass
@@ -46,9 +57,7 @@ class ServerProxy(Proxy):
 
 
 class ExternalMobileProxy(Proxy):
-    CHANGE_IP_RETRIES = 3
     CHANGE_IP_TIMEOUT = 30
-    CHANGE_IP_RETRY_DELAY = 5
 
     def __init__(self, url, change_ip_urls, change_ip_proxy=None):
         self.url = url
@@ -78,44 +87,19 @@ class ExternalMobileProxy(Proxy):
 
         total = len(self.change_ip_urls)
         for url_index, change_ip_url in enumerate(self.change_ip_urls, start=1):
-            for attempt in range(1, self.CHANGE_IP_RETRIES + 1):
-                try:
-                    res = requests.get(
-                        change_ip_url,
-                        params=params,
-                        timeout=self.CHANGE_IP_TIMEOUT,
-                        proxies=proxies,
-                        headers={"User-Agent": BROWSER_USER_AGENT},
-                    )
-                    if res.status_code == 200:
-                        try:
-                            new_ip = res.json().get("new_ip")
-                        except ValueError:
-                            new_ip = None
-                        if new_ip:
-                            logger.success(
-                                f"новый IP {new_ip} (ссылка смены {url_index}/{total})"
-                            )
-                            return True
-                        logger.warning(
-                            f"[ссылка {url_index}/{total}] "
-                            f"[попытка {attempt}/{self.CHANGE_IP_RETRIES}] "
-                            f"статус 200, но new_ip пустой"
-                        )
-                    else:
-                        logger.warning(
-                            f"[ссылка {url_index}/{total}] "
-                            f"[попытка {attempt}/{self.CHANGE_IP_RETRIES}] "
-                            f"статус {res.status_code}"
-                        )
-                except Exception as err:
-                    logger.warning(
-                        f"[ссылка {url_index}/{total}] "
-                        f"[попытка {attempt}/{self.CHANGE_IP_RETRIES}] "
-                        f"ошибка: {err}"
-                    )
-                if attempt < self.CHANGE_IP_RETRIES:
-                    time.sleep(self.CHANGE_IP_RETRY_DELAY)
+            try:
+                res = requests.get(
+                    change_ip_url, params=params,
+                    timeout=min(self.CHANGE_IP_TIMEOUT, self.rotation_timeout),
+                    proxies=proxies, headers={"User-Agent": BROWSER_USER_AGENT},
+                )
+                new_ip = res.json().get("new_ip") if res.status_code == 200 else None
+                if new_ip:
+                    logger.success(f"новый IP {new_ip} (ссылка смены {url_index}/{total})")
+                    return True
+                logger.warning(f"[ссылка {url_index}/{total}] статус {res.status_code}, новый IP не получен")
+            except Exception as err:
+                logger.warning(f"[ссылка {url_index}/{total}] ошибка смены IP: {err}")
 
         logger.error(f"Не удалось сменить IP ни по одной из {total} ссылок change_urls")
         return False
@@ -131,7 +115,8 @@ class OwnMobileProxy(Proxy):
     """
 
     def __init__(self, adb_serial=None, server=None, port=8888, rotate_ip=True,
-                 login=None, password=None, ssh=None):
+                 login=None, password=None, ssh=None, transport="ssh"):
+        self.transport = transport
         self.adb_serial = adb_serial
         self.ssh = ssh
         self.port = int(port or 8888)
@@ -164,4 +149,4 @@ class OwnMobileProxy(Proxy):
             logger.warning("Смена IP своего мобильного прокси отключена (rotate_ip = false)")
             return False
         from utils.own_mobile_proxy import rotate_ip
-        return rotate_ip(self.adb_serial, ssh=self.ssh)
+        return rotate_ip(self.adb_serial, ssh=self.ssh, transport=self.transport)

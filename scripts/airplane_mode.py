@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Переключение устройства в режим полёта и обратно (смена IP) через adb.
+"""Переключение устройства в режим полёта и обратно (смена IP) через транспорт из config.toml.
 
 По умолчанию делает полный цикл: включить режим полёта → подождать → выключить
 → подождать (смена IP мобильного устройства).
@@ -12,27 +12,17 @@
     python scripts/airplane_mode.py --on-sleep 5 --off-sleep 12
 """
 import argparse
-import subprocess
+import math
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from utils.own_mobile_proxy import AIRPLANE_OFF_SLEEP, AIRPLANE_ON_SLEEP
+from utils.own_mobile_proxy import AIRPLANE_OFF_SLEEP, AIRPLANE_ON_SLEEP, set_airplane_adb
 
 
-def _adb(serial, *args):
-    """Выполняет adb (с -s serial, если задан). Возвращает CompletedProcess или None."""
-    cmd = ["adb"] + (["-s", str(serial)] if serial else []) + list(args)
-    try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    except FileNotFoundError:
-        print("❌ adb не найден в PATH", file=sys.stderr)
-        return None
-    except Exception as err:
-        print(f"❌ Ошибка adb {list(args)}: {err}", file=sys.stderr)
-        return None
+from utils.adb import run_adb as _adb
 
 
 def _check_device(serial) -> bool:
@@ -46,18 +36,9 @@ def _check_device(serial) -> bool:
 
 
 def set_airplane(serial, enable: bool) -> bool:
-    """Включает (True) или выключает (False) режим полёта через adb."""
-    value = "1" if enable else "0"
-    state = "true" if enable else "false"
-    label = "включаю" if enable else "выключаю"
-
-    res = _adb(serial, "shell", "settings", "put", "global", "airplane_mode_on", value)
-    if res is None or res.returncode != 0:
-        err = (res.stderr.strip() if res else "adb недоступен")
-        print(f"❌ Не удалось {label} режим полёта: {err}", file=sys.stderr)
+    """Включает или выключает режим полёта через ADB/root."""
+    if not set_airplane_adb(serial, enable):
         return False
-    _adb(serial, "shell", "am", "broadcast",
-         "-a", "android.intent.action.AIRPLANE_MODE", "--ez", "state", state)
     print(f"✈️  Режим полёта: {'включён' if enable else 'выключен'}")
     return True
 
@@ -67,7 +48,7 @@ def main(argv=None):
         description="Переключение устройства в режим полёта и обратно (смена IP)"
     )
     parser.add_argument("--serial", default=None, help="Серийник устройства (adb -s SERIAL)")
-    parser.add_argument("--config", default="config.toml", help="config.toml для adb_serial")
+    parser.add_argument("--config", default="config.toml", help="config.toml с настройками транспорта")
     parser.add_argument("--on", action="store_true", help="Только включить режим полёта")
     parser.add_argument("--off", action="store_true", help="Только выключить режим полёта")
     parser.add_argument("--on-sleep", type=float, default=AIRPLANE_ON_SLEEP,
@@ -76,14 +57,39 @@ def main(argv=None):
                         help=f"Пауза после выключения, сек (по умолчанию {AIRPLANE_OFF_SLEEP})")
     args = parser.parse_args(argv)
 
-    serial = args.serial
-    if not serial:
+    if args.on and args.off:
+        parser.error("Выберите только --on или --off")
+    if any(not math.isfinite(v) or v < 0 for v in (args.on_sleep, args.off_sleep)):
+        parser.error("Паузы должны быть конечными неотрицательными числами")
+    try:
+        from load_config import load_avito_config
+        config = load_avito_config(args.config)
+    except Exception as err:
+        print(f"Не удалось прочитать конфигурацию: {err}", file=sys.stderr)
+        return 1
+    own = config.own_mobile_proxy
+    if own.transport == "ssh":
+        if args.serial:
+            parser.error("--serial применяется только при transport=adb")
+        from utils.own_mobile_proxy import _connect, _run_remote, _rotate_airplane_ssh, REMOTE_ENV
+        if not args.on and not args.off:
+            return 0 if _rotate_airplane_ssh(own.ssh, args.on_sleep, args.off_sleep) else 1
+        client = None
         try:
-            from load_config import load_avito_config
-            config = load_avito_config(args.config)
-            serial = getattr(config.own_mobile_proxy, "adb_serial", "") or None
-        except Exception:
-            serial = None
+            client = _connect(own.ssh)
+            action = "enable" if args.on else "disable"
+            code, _, err = _run_remote(client, REMOTE_ENV +
+                f"su -c 'cmd connectivity airplane-mode {action}'")
+            if code:
+                print(err, file=sys.stderr)
+            return 0 if code == 0 else 1
+        except Exception as err:
+            print(f"SSH: не удалось подтвердить переключение режима полёта: {err}", file=sys.stderr)
+            return 1
+        finally:
+            if client is not None:
+                client.close()
+    serial = args.serial or own.adb_serial or None
 
     if not _check_device(serial):
         return 1
@@ -96,8 +102,11 @@ def main(argv=None):
     # полный цикл: вкл → пауза → выкл → пауза
     if not set_airplane(serial, True):
         return 1
-    time.sleep(args.on_sleep)
-    if not set_airplane(serial, False):
+    try:
+        time.sleep(args.on_sleep)
+    finally:
+        off = set_airplane(serial, False)
+    if not off:
         return 1
     time.sleep(args.off_sleep)
     print("✅ Цикл режима полёта завершён (IP обновлён)")

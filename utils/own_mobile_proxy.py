@@ -1,47 +1,25 @@
-"""Единая точка запуска/остановки своего мобильного прокси.
+"""Управление tinyproxy в Termux через выбранный transport: adb или ssh.
 
-Свой мобильный прокси — это tinyproxy на телефоне (Termux). Запускается по SSH
-через `nohup ... &` (без tmux): процесс живёт на телефоне независимо от SSH-сессии.
-При каждом запуске старый tinyproxy сначала останавливается (`pkill -x tinyproxy`),
-затем запускается новый.
-
-Смена IP — перевод телефона в режим полёта и обратно **через adb**
-(`adb shell settings put global airplane_mode_on …`). После смены IP и при каждом
-запуске tinyproxy на телефоне выполняется `scripts/update_network.sh`
-(маршрутизация Termux через мобильный интерфейс + обновление Bind в tinyproxy.conf):
-стоп tinyproxy → update_network.sh → старт tinyproxy.
-
-Порты НЕ пробрасываются (никакого `adb forward`): адрес прокси собирается из
-`own_mobile_proxy.server` и `own_mobile_proxy.port` (пусто = `ssh.host`), парсер
-обращается туда напрямую.
-
-Настройки берутся из config.toml:
-
-    [avito.own_mobile_proxy]
-    use = true
-    port = 8888
-    adb_serial = ""          # серийник для adb (пусто — adb без -s)
-
-    [avito.own_mobile_proxy.ssh]
-    host = "192.168.1.50"
-    port = 8022
-    user = "u0_a123"
-    password = "..."
-
-Для SSH используется paramiko (pip install paramiko), для режима полёта — adb в PATH.
+Запуск, остановка, статус, логи и смена IP используют один транспорт.
+ADB требует root и выполняет команды с UID Termux. SSH подключается к Termux sshd.
+Прокси доступен напрямую по server:port (резервный адрес — ssh.host).
 """
 import base64
 import os
+import shlex
 import signal
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 from loguru import logger
 
+from utils.adb import run_adb as _adb, stream_adb
+
 ROOT = Path(__file__).resolve().parent.parent
-UPDATE_NETWORK_SCRIPT = ROOT / "scripts" / "update_network.sh"
+FIX_INTERFACES_SCRIPT = ROOT / "scripts" / "fix_interfaces_via_ssh.sh"
 FOLLOWER_SCRIPT = ROOT / "scripts" / "follow_tinyproxy_log.py"
 
 LOGS_DIR = ROOT / "logs"
@@ -54,7 +32,7 @@ TERMUX_PREFIX = "/data/data/com.termux/files/usr"
 TERMUX_HOME = "/data/data/com.termux/files/home"
 TINYPROXY_CONF = f"{TERMUX_PREFIX}/etc/tinyproxy/tinyproxy.conf"
 DEFAULT_DEVICE_LOG = f"{TERMUX_HOME}/tinyproxy.log"
-REMOTE_UPDATE_SCRIPT = f"{TERMUX_HOME}/update_network.sh"
+REMOTE_FIX_INTERFACES_SCRIPT = f"{TERMUX_HOME}/fix_interfaces_via_ssh.sh"
 
 AIRPLANE_ON_SLEEP = 5     # пауза в режиме полёта (сброс сети)
 AIRPLANE_OFF_SLEEP = 12   # пауза после выхода из режима полёта (получение нового IP)
@@ -116,6 +94,8 @@ def _connect(ssh, timeout: int = 15):
 
 def _run_remote(client, command: str, timeout: int = 60):
     """Выполняет команду на телефоне, возвращает (code, stdout, stderr)."""
+    if isinstance(client, _AdbTermuxClient):
+        return client.run(command, timeout)
     stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
     out = stdout.read().decode("utf-8", "replace").strip()
     err = stderr.read().decode("utf-8", "replace").strip()
@@ -124,10 +104,9 @@ def _run_remote(client, command: str, timeout: int = 60):
 
 
 def _remote_start_command(device_log: str) -> str:
-    """Команда на телефоне: остановить старый tinyproxy и запустить новый через nohup."""
+    """Команда на телефоне: запустить tinyproxy через nohup."""
     return (
         REMOTE_ENV
-        + "pkill -x tinyproxy 2>/dev/null; sleep 1; "
         + f"nohup {TERMUX_PREFIX}/bin/tinyproxy -d -c {TINYPROXY_CONF} "
         + f">> {device_log} 2>&1 < /dev/null & "
         + 'echo "started pid $!"'
@@ -135,13 +114,13 @@ def _remote_start_command(device_log: str) -> str:
 
 
 def _remote_stop_command() -> str:
-    """Остановка tinyproxy на телефоне: pkill -f tinyproxy (по полной командной строке)."""
-    return REMOTE_ENV + "pkill -f tinyproxy"
+    """Остановка tinyproxy на телефоне: pkill -x tinyproxy (по полной командной строке)."""
+    return REMOTE_ENV + "pkill -x tinyproxy"
 
 
 def _remote_kill_command() -> str:
-    """Принудительная остановка: pkill -9 -f tinyproxy."""
-    return REMOTE_ENV + "pkill -9 -f tinyproxy"
+    """Принудительная остановка: pkill -9 -x tinyproxy."""
+    return REMOTE_ENV + "pkill -9 -x tinyproxy"
 
 
 def _remote_status_command() -> str:
@@ -149,38 +128,38 @@ def _remote_status_command() -> str:
     return REMOTE_ENV + "pgrep -x tinyproxy >/dev/null 2>&1 && echo running || echo stopped"
 
 
-def _update_network(client) -> bool:
-    """Заливает scripts/update_network.sh на телефон и выполняет его.
+def _fix_interfaces_via_ssh(client) -> bool:
+    """Заливает scripts/fix_interfaces_via_ssh.sh на телефон и выполняет его.
 
     Скрипт настраивает маршрутизацию Termux через мобильный интерфейс и обновляет
     Bind в tinyproxy.conf (нужен root/`su` на телефоне).
     """
-    if not UPDATE_NETWORK_SCRIPT.exists():
-        logger.warning(f"Не найден {UPDATE_NETWORK_SCRIPT} — настройку сети пропускаю")
+    if not FIX_INTERFACES_SCRIPT.exists():
+        logger.warning(f"Не найден {FIX_INTERFACES_SCRIPT} — настройку сети пропускаю")
         return True
 
     try:
-        payload = base64.b64encode(UPDATE_NETWORK_SCRIPT.read_bytes()).decode("ascii")
+        payload = base64.b64encode(FIX_INTERFACES_SCRIPT.read_bytes()).decode("ascii")
     except OSError as err:
-        logger.warning(f"Не удалось прочитать {UPDATE_NETWORK_SCRIPT}: {err}")
+        logger.warning(f"Не удалось прочитать {FIX_INTERFACES_SCRIPT}: {err}")
         return False
 
     command = (
         REMOTE_ENV
-        + f"echo {payload} | base64 -d > {REMOTE_UPDATE_SCRIPT} "
-        + f"&& chmod +x {REMOTE_UPDATE_SCRIPT} "
-        + f"&& {TERMUX_PREFIX}/bin/bash {REMOTE_UPDATE_SCRIPT}"
+        + f"echo {payload} | base64 -d > {REMOTE_FIX_INTERFACES_SCRIPT} "
+        + f"&& chmod +x {REMOTE_FIX_INTERFACES_SCRIPT} "
+        + f"&& {TERMUX_PREFIX}/bin/bash -x {REMOTE_FIX_INTERFACES_SCRIPT}"
     )
     try:
         code, out, err = _run_remote(client, command, timeout=180)
     except Exception as err:
-        logger.warning(f"Ошибка выполнения update_network.sh: {err}")
+        logger.warning(f"Ошибка выполнения fix_interfaces_via_ssh.sh: {err}")
         return False
 
     if out:
-        logger.info(f"update_network.sh:\n{out}")
+        logger.info(f"fix_interfaces_via_ssh.sh:\n{out}")
     if code != 0:
-        logger.warning(f"update_network.sh завершился с кодом {code}: {err}")
+        logger.warning(f"fix_interfaces_via_ssh.sh завершился с кодом {code}: {err}")
         return False
     return True
 
@@ -202,6 +181,7 @@ def _ensure_logfile(client, device_log: str) -> bool:
     )
     command = (
         REMOTE_ENV
+        + "set -e; "
         + f'mkdir -p "{log_dir}"; '
         + f'if grep -qE "^[[:space:]]*#?[[:space:]]*LogFile[[:space:]]" {TINYPROXY_CONF}; '
         + f"then {sed_logfile}; else echo 'LogFile \"{device_log}\"' >> {TINYPROXY_CONF}; fi; "
@@ -221,15 +201,23 @@ def _ensure_logfile(client, device_log: str) -> bool:
 
 
 def _restart_tinyproxy(client, device_log: str):
-    """Стоп tinyproxy → update_network.sh → LogFile → старт tinyproxy. Возвращает (ok, output)."""
-    _run_remote(client, _remote_stop_command())
-    _update_network(client)
-    _ensure_logfile(client, device_log)
+    """Стоп и старт tinyproxy; настройка сети и LogFile выполняется только через SSH."""
+    code, out, err = _run_remote(client, REMOTE_ENV + "pkill -x tinyproxy")
+    if code not in (0, 1):  # 1: процесс уже остановлен
+        return False, err or out
+    time.sleep(1)
+    if not isinstance(client, _AdbTermuxClient):
+        if not _fix_interfaces_via_ssh(client):
+            return False, "Не удалось обновить сеть и Bind"
+        if not _ensure_logfile(client, device_log):
+            return False, "Не удалось настроить лог tinyproxy"
     code, out, err = _run_remote(client, _remote_start_command(device_log))
     if code != 0:
         logger.warning(f"Не удалось запустить tinyproxy (код {code}): {err}")
         return False, (err or out)
-    return True, out
+    time.sleep(1)
+    status, state, error = _run_remote(client, _remote_status_command())
+    return status == 0 and state.strip() == "running", error or state or out
 
 
 # --------------------------------------------------------------------------- #
@@ -272,24 +260,29 @@ def _kill_pid(pid, sig) -> None:
             pass
 
 
-def stream_remote_log(ssh, remote_log: str, local_log: str = str(LOCAL_LOG),
+def stream_remote_log(own, remote_log: str, local_log: str = str(LOCAL_LOG),
                       retry_delay: int = 5) -> None:
-    """Бесконечно стримит `remote_log` с телефона в `local_log` (tail -F по SSH).
+    """Бесконечно стримит `remote_log` с телефона в `local_log` (tail -F через выбранный транспорт).
 
-    Переподключается при обрыве SSH и переживает перезапуски tinyproxy.
+    Переподключается при обрыве соединения и переживает перезапуски tinyproxy.
     """
     Path(local_log).parent.mkdir(parents=True, exist_ok=True)
     while True:
         try:
-            client = _connect(ssh)
+            client = _open_control(own)
         except Exception as err:
-            logger.warning(f"Лог tinyproxy: не подключиться по SSH ({err}); повтор через {retry_delay}с")
+            logger.warning(f"Лог tinyproxy: не подключиться через выбранный транспорт ({err}); повтор через {retry_delay}с")
             time.sleep(retry_delay)
             continue
         try:
+            if isinstance(client, _AdbTermuxClient):
+                command = REMOTE_ENV + "exec tail -n +1 -F " + shlex.quote(remote_log)
+                with open(local_log, "ab") as output:
+                    code = stream_adb(client.serial, ["shell", client.shell_command(command)], output)
+                raise RuntimeError(f"ADB log stream завершился с кодом {code}")
             channel = client.get_transport().open_session()
             channel.set_combine_stderr(True)
-            channel.exec_command(REMOTE_ENV + f"tail -n +1 -F {remote_log}")
+            channel.exec_command(REMOTE_ENV + "tail -n +1 -F " + shlex.quote(remote_log))
             with open(local_log, "ab") as fh:
                 while True:
                     data = channel.recv(65536)
@@ -359,27 +352,19 @@ def start_proxy(config, device_log: str = DEFAULT_DEVICE_LOG,
         print("own_mobile_proxy.use = false — свой мобильный прокси не запускается.")
         return 0
 
-    ssh = getattr(own, "ssh", None)
-    host = (getattr(ssh, "host", "") or "").strip()
-    if not host:
-        print("❌ Не задан ssh.host в [avito.own_mobile_proxy.ssh]", file=sys.stderr)
-        return 1
-
-    port = int(getattr(ssh, "port", 0) or 8022)
-    user = (getattr(ssh, "user", "") or "").strip() or "?"
-    print(f"SSH: {user}@{host}:{port} → nohup tinyproxy -d")
+    print(f"Управление телефоном: {own.transport}")
     print(f"Прокси для парсера: {proxy_address(own)}")
 
     try:
-        client = _connect(ssh)
+        client = _open_control(own)
     except Exception as err:
-        print(f"❌ Не удалось подключиться по SSH: {err}", file=sys.stderr)
+        print(f"❌ Не удалось подключиться через выбранный транспорт: {err}", file=sys.stderr)
         return 1
 
     try:
         ok, out = _restart_tinyproxy(client, device_log)
     except Exception as err:
-        print(f"❌ Ошибка выполнения команды по SSH: {err}", file=sys.stderr)
+        print(f"❌ Ошибка выполнения команды через выбранный транспорт: {err}", file=sys.stderr)
         return 1
     finally:
         client.close()
@@ -391,13 +376,13 @@ def start_proxy(config, device_log: str = DEFAULT_DEVICE_LOG,
         return 1
 
     _start_log_follower(config_path, device_log)
-    print(f"tinyproxy запущен на телефоне (nohup), update_network.sh выполнен. "
+    print(f"tinyproxy запущен на телефоне (nohup, транспорт {own.transport}). "
           f"Лог на телефоне: {device_log}; стрим на хост: logs/{LOCAL_LOG.name}")
     return 0
 
 
 def stop_proxy(config, force: bool = False) -> int:
-    """Останавливает tinyproxy на телефоне по SSH. Возвращает код выхода.
+    """Останавливает tinyproxy на телефоне через выбранный транспорт. Возвращает код выхода.
 
     force=True — останавливать даже если `[avito.own_mobile_proxy].use = false`
     (очистка оставшихся процессов; нужен заданный ssh.host).
@@ -408,79 +393,117 @@ def stop_proxy(config, force: bool = False) -> int:
     if not getattr(own, "use", False) and not force:
         return 0
 
-    ssh = getattr(own, "ssh", None)
-    if not (getattr(ssh, "host", "") or "").strip():
-        print("⚠️ Не задан ssh.host — не могу остановить tinyproxy на телефоне", file=sys.stderr)
-        return 1 if force else 0
-
     _stop_log_follower()
 
     try:
-        client = _connect(ssh)
+        client = _open_control(own)
     except Exception as err:
-        print(f"⚠️ Не удалось подключиться по SSH для остановки: {err}", file=sys.stderr)
+        print(f"⚠️ Не удалось подключиться через выбранный транспорт для остановки: {err}", file=sys.stderr)
         return 1
 
     try:
         _run_remote(client, _remote_stop_command())
-        _, out, _ = _run_remote(client, _remote_status_command())
+        code, out, _ = _run_remote(client, _remote_status_command())
     except Exception as err:
-        print(f"⚠️ Ошибка остановки по SSH: {err}", file=sys.stderr)
+        print(f"⚠️ Ошибка остановки через выбранный транспорт: {err}", file=sys.stderr)
         return 1
     finally:
         client.close()
 
-    if "running" in out:
+    if code != 0 or out.strip() != "stopped":
         print("  proxy: tinyproxy не остановился, пробую SIGKILL...")
         try:
-            client2 = _connect(ssh)
+            client2 = _open_control(own)
             try:
                 _run_remote(client2, _remote_kill_command())
-                _, out, _ = _run_remote(client2, _remote_status_command())
+                code, out, _ = _run_remote(client2, _remote_status_command())
             finally:
                 client2.close()
         except Exception as err:
             print(f"  ⚠️ SIGKILL не удался: {err}", file=sys.stderr)
 
-    if "running" in out:
+    if code != 0 or out.strip() != "stopped":
         print("  ⚠️ tinyproxy всё ещё запущен на телефоне", file=sys.stderr)
         return 1
-    print("    tinyproxy остановлен (pkill -f tinyproxy)")
+    print("    tinyproxy остановлен (pkill -x tinyproxy)")
     return 0
 
 
 def service_running(config) -> bool:
-    """True, если tinyproxy уже запущен на телефоне (проверка по SSH)."""
+    """True, если tinyproxy уже запущен на телефоне (проверка через выбранный транспорт)."""
     own = getattr(config, "own_mobile_proxy", None)
     if own is None or not getattr(own, "use", False):
         return False
-    if not (getattr(getattr(own, "ssh", None), "host", "") or "").strip():
-        return False
-
     try:
-        client = _connect(own.ssh)
+        client = _open_control(own)
     except Exception:
         return False
     try:
-        _, out, _ = _run_remote(client, _remote_status_command())
+        code, out, _ = _run_remote(client, _remote_status_command())
     except Exception:
         return False
     finally:
         client.close()
-    return "running" in out
+    return code == 0 and out.strip() == "running"
 
 
-def _adb(adb_serial, *args, timeout: int = 30):
-    """Выполняет команду adb (с -s adb_serial, если задан). Возвращает CompletedProcess или None."""
-    cmd = ["adb"] + (["-s", str(adb_serial)] if adb_serial else []) + list(args)
+def _open_control(own):
+    if own.transport == "adb":
+        return _AdbTermuxClient(own.adb_serial)
+    if own.transport == "ssh":
+        return _connect(own.ssh)
+    raise ValueError("own_mobile_proxy.transport должен быть ssh или adb")
+
+
+def _rotate_airplane_ssh(ssh, on_sleep=AIRPLANE_ON_SLEEP, off_sleep=AIRPLANE_OFF_SLEEP):
+    """Оба переключения выполняются на телефоне даже при потере SSH-соединения."""
+    marker = f"{TERMUX_HOME}/.airplane-{uuid.uuid4().hex}"
+    # Выключение выполняется даже при ошибке включения; результат пишется после него.
+    script = (
+        "cmd connectivity airplane-mode enable; enabled=$?; "
+        f"sleep {float(on_sleep)}; "
+        "cmd connectivity airplane-mode disable; disabled=$?; "
+        "test $enabled -eq 0 && test $disabled -eq 0"
+    )
+    job = f"su -c {shlex.quote(script)}; echo $? > {shlex.quote(marker)}"
+    command = (REMOTE_ENV + f"nohup {TERMUX_PREFIX}/bin/bash -c {shlex.quote(job)} "
+               ">/dev/null 2>&1 </dev/null &")
+    client = None
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    except FileNotFoundError:
-        logger.warning("adb не найден в PATH — смена IP недоступна")
-        return None
+        client = _connect(ssh)
+        try:
+            code, _, _ = _run_remote(client, command)
+            if code != 0:
+                return False
+        except (OSError, EOFError):
+            # Режим полёта мог оборвать SSH после запуска фоновой команды.
+            pass
+        client.close()
+        client = None
+        time.sleep(on_sleep + off_sleep)
+        client = _connect(ssh)
+        code, out, _ = _run_remote(client, REMOTE_ENV +
+            f"cat {shlex.quote(marker)}; result=$?; rm -f {shlex.quote(marker)}; exit $result")
+        return code == 0 and out.strip() == "0"
     except Exception as err:
-        logger.warning(f"Ошибка adb {list(args)}: {err}")
-        return None
+        logger.warning(f"Смена IP через SSH не удалась: {err}")
+        return False
+    finally:
+        if client is not None:
+            client.close()
+
+
+def set_airplane_adb(adb_serial, enable: bool) -> bool:
+    """Переключение через Android connectivity service с root, без protected broadcast."""
+    action = "enable" if enable else "disable"
+    result = _adb(adb_serial, "shell", "su -c " + shlex.quote(
+        f"cmd connectivity airplane-mode {action}"))
+    if result is None or result.returncode != 0:
+        error = ((result.stderr.strip() or result.stdout.strip())
+                 if result is not None else "ADB недоступен или timeout")
+        logger.warning(f"Режим полёта ({action}) не переключён: {error}")
+        return False
+    return True
 
 
 def _rotate_airplane(adb_serial) -> bool:
@@ -494,43 +517,70 @@ def _rotate_airplane(adb_serial) -> bool:
         return False
 
     logger.info(f"🔄 Смена IP через {device}: включаю режим полёта...")
-    on = _adb(adb_serial, "shell", "settings", "put", "global", "airplane_mode_on", "1")
-    if on is None or on.returncode != 0:
-        logger.warning(f"Не удалось включить режим полёта: {(on.stderr.strip() if on else 'adb недоступен')}")
+    if not set_airplane_adb(adb_serial, True):
         return False
-    _adb(adb_serial, "shell", "am", "broadcast",
-         "-a", "android.intent.action.AIRPLANE_MODE", "--ez", "state", "true")
-    time.sleep(AIRPLANE_ON_SLEEP)
-
-    logger.info("🔄 Возвращаю обычный режим...")
-    off = _adb(adb_serial, "shell", "settings", "put", "global", "airplane_mode_on", "0")
-    if off is None or off.returncode != 0:
-        logger.warning(f"Не удалось выключить режим полёта: {(off.stderr.strip() if off else 'adb недоступен')}")
+    try:
+        time.sleep(AIRPLANE_ON_SLEEP)
+    finally:
+        logger.info("🔄 Возвращаю обычный режим...")
+        off = set_airplane_adb(adb_serial, False)
+    if not off:
         return False
-    _adb(adb_serial, "shell", "am", "broadcast",
-         "-a", "android.intent.action.AIRPLANE_MODE", "--ez", "state", "false")
     time.sleep(AIRPLANE_OFF_SLEEP)
     return True
 
 
-def rotate_ip(adb_serial=None, ssh=None, device_log: str = DEFAULT_DEVICE_LOG) -> bool:
+class _AdbTermuxClient:
+    """ADB → root → UID Termux; tinyproxy и сетевой скрипт работают с UID приложения."""
+
+    def __init__(self, serial):
+        self.serial = serial
+        result = _adb(serial, "shell", "su -c " + shlex.quote(
+            f"/system/bin/stat -c %u {TERMUX_HOME}"))
+        if result is None or result.returncode != 0:
+            raise RuntimeError("ADB: нужен разрешённый root-доступ (su) и установленный Termux; "
+                               + (result.stderr.strip() if result is not None else "см. logs/adb.log"))
+        uid = result.stdout.strip()
+        if not uid.isdecimal() or int(uid) < 10000:
+            raise RuntimeError("ADB: не удалось определить UID приложения Termux")
+        self.uid = uid
+
+    def shell_command(self, command):
+        # Два уровня quoting: Android shell и shell, запущенный через root su.
+        inner = f"su {self.uid} -s {TERMUX_PREFIX}/bin/bash -c {shlex.quote(command)}"
+        return "su -c " + shlex.quote(inner)
+
+    def run(self, command, timeout=60):
+        result = _adb(self.serial, "shell", self.shell_command(command), timeout=timeout)
+        if result is None:
+            raise RuntimeError("ADB: команда Termux не выполнена или истёк timeout")
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+    def close(self):
+        pass
+
+
+def rotate_ip(adb_serial=None, ssh=None, device_log: str = DEFAULT_DEVICE_LOG,
+              transport: str = "ssh") -> bool:
     """Смена IP своего прокси.
 
-    1. режим полёта и обратно через adb;
-    2. стоп tinyproxy → update_network.sh → старт tinyproxy (по SSH).
+    1. режим полёта и обратно через выбранный транспорт;
+    2. стоп и старт tinyproxy; при SSH — сначала fix_interfaces_via_ssh.sh.
     """
-    if not _rotate_airplane(adb_serial):
+    if transport not in ("ssh", "adb"):
+        raise ValueError("transport должен быть ssh или adb")
+    if not (_rotate_airplane(adb_serial) if transport == "adb" else _rotate_airplane_ssh(ssh)):
         return False
 
-    if ssh is None or not (getattr(ssh, "host", "") or "").strip():
+    if transport == "ssh" and (ssh is None or not (getattr(ssh, "host", "") or "").strip()):
         logger.warning("Смена IP: не задан SSH — tinyproxy не перезапущен (Bind останется старым)")
         return False
 
-    logger.info("🔧 Перезапускаю tinyproxy: стоп → update_network.sh → старт...")
+    logger.info(f"🔧 Перезапускаю tinyproxy через {transport}...")
     try:
-        client = _connect(ssh)
+        client = _AdbTermuxClient(adb_serial) if transport == "adb" else _connect(ssh)
     except Exception as err:
-        logger.warning(f"Смена IP: не удалось подключиться по SSH для перезапуска tinyproxy: {err}")
+        logger.warning(f"Смена IP: подключение через {transport} для перезапуска tinyproxy не удалось: {err}")
         return False
     try:
         ok, out = _restart_tinyproxy(client, device_log)
@@ -564,5 +614,6 @@ def ensure_own_mobile_proxy(config, config_path: str = DEFAULT_CONFIG) -> bool:
         _start_log_follower(config_path, DEFAULT_DEVICE_LOG)
         return True
 
-    start_proxy(config, config_path=config_path)
+    if start_proxy(config, config_path=config_path) != 0:
+        raise RuntimeError("Не удалось запустить свой мобильный прокси")
     return True

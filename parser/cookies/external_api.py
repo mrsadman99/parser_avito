@@ -6,6 +6,7 @@ import requests
 from loguru import logger
 
 from parser.cookies.base import CookiesProvider
+from parser.proxies.proxy import ProxyRotationError
 from proxy_helpers import build_proxies_dict
 
 API_URL = "https://spfa.pro/api"
@@ -307,7 +308,9 @@ class ExternalApiCookiesProvider(CookiesProvider):
     def _handle_purchase_failure(self, pause: int | None = None) -> None:
         if self.proxy_handler is not None:
             try:
-                self.proxy_handler.handle_block()
+                self.proxy_handler.rotate_with_retries()
+            except ProxyRotationError:
+                raise
             except Exception as err:
                 logger.warning(
                     f"Не удалось сменить IP после ошибки получения cookies: {err}"

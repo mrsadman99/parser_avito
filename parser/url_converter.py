@@ -5,6 +5,7 @@ from threading import Lock
 
 import requests
 from loguru import logger
+from parser.cancellation import Cancellation, cancellable_lock
 
 
 SPFA_AVITO_URL_ENDPOINT = "https://spfa.pro/api/avito-url/"
@@ -27,13 +28,15 @@ class AvitoUrlConverter:
         self.timeout = timeout
         self._cache = self._load_cache()
 
-    def convert(self, url: str) -> str:
+    def convert(self, url: str, cancellation: Cancellation | None = None) -> str:
+        cancellation = cancellation or Cancellation()
+        cancellation.checkpoint()
         cached_url = self._cache.get(url)
         if cached_url:
             logger.debug(f"API URL загружен из кэша: {url}")
             return cached_url
 
-        with self._request_lock:
+        with cancellable_lock(self._request_lock, cancellation):
             # Another converter in this process may have populated the file
             # while this instance was waiting for the rate-limit lock.
             self._cache.update(self._load_cache())
@@ -41,7 +44,8 @@ class AvitoUrlConverter:
             if cached_url:
                 return cached_url
 
-            self._wait_for_rate_limit()
+            self._wait_for_rate_limit(cancellation)
+            cancellation.checkpoint()
             response = requests.post(
                 SPFA_AVITO_URL_ENDPOINT,
                 json={"url": url},
@@ -51,6 +55,7 @@ class AvitoUrlConverter:
             type(self)._last_request_at = time.monotonic()
 
             if response.status_code != 200:
+                cancellation.checkpoint()
                 raise RuntimeError(self._format_error(response))
 
             try:
@@ -68,17 +73,20 @@ class AvitoUrlConverter:
 
             self._cache[url] = api_url
             self._save_cache()
+            # Преобразование зависит только от URL: новый обход сможет взять кэш.
+            cancellation.checkpoint()
             logger.info(f"Ссылка Avito преобразована в API URL: {url}")
             return api_url
 
-    def _wait_for_rate_limit(self) -> None:
+    def _wait_for_rate_limit(self, cancellation: Cancellation | None = None) -> None:
+        cancellation = cancellation or Cancellation()
         elapsed = time.monotonic() - type(self)._last_request_at
         delay = self.min_request_interval - elapsed
         if type(self)._last_request_at and delay > 0:
             logger.info(
                 f"Ожидание {delay:.1f} сек. перед следующим запросом к SPFA"
             )
-            time.sleep(delay)
+            cancellation.wait(delay)
 
     @staticmethod
     def _format_error(response) -> str:

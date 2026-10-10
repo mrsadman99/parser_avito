@@ -6,6 +6,10 @@ from models import Item
 
 class Notifier(ABC):
 
+    def delivery_targets(self) -> dict[str, "Notifier"]:
+        """Стабильные ключи получателей для постоянной очереди доставки."""
+        return {getattr(self, "delivery_key", type(self).__qualname__): self}
+
     @abstractmethod
     def notify(self, ad: Item = None, message: str = None):
         """Отправляем одно объявление"""

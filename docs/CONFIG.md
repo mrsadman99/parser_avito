@@ -139,10 +139,12 @@ block_threshold = 3
 ### Свой мобильный прокси (`[avito.own_mobile_proxy]`)
 
 tinyproxy, запущенный на телефоне (Termux), — трафик идёт через мобильную сеть.
-Запускается по SSH через `nohup ... &` (без tmux) и живёт независимо от SSH-сессии.
-При каждом запуске выполняется `scripts/update_network.sh` (маршрутизация Termux
+Запускается через выбранный transport (SSH или ADB) через `nohup ... &` (без tmux) и живёт независимо от SSH-сессии.
+При запуске и перезапуске через SSH выполняется `scripts/fix_interfaces_via_ssh.sh` (маршрутизация Termux
 через мобильный интерфейс + обновление `Bind` в `tinyproxy.conf`), причём в порядке
-**стоп tinyproxy → update_network.sh → старт tinyproxy**. Порты НЕ пробрасываются:
+**стоп tinyproxy → fix_interfaces_via_ssh.sh → старт tinyproxy**.
+При ADB выполняются остановка, запуск через nohup и проверка процесса; настройки
+сети и tinyproxy.conf сохраняются. Порты НЕ пробрасываются:
 адрес прокси собирается как `{server}:{port}` (если `server` пуст — берётся
 `ssh.host`), и парсер обращается туда напрямую. Этот же адрес
 (`login:password@{server}:{port}`) уходит в SPFA в поле `proxy` тела запроса, а сам
@@ -156,8 +158,9 @@ tinyproxy, запущенный на телефоне (Termux), — трафик
 ```toml
 [avito.own_mobile_proxy]
 use = true          # true — трафик через свой мобильный прокси
+transport = "adb"   # adb или ssh — транспорт всех команд телефона
 port = 8888         # порт tinyproxy на телефоне
-rotate_ip = true    # смена IP через adb (airplane mode) при блокировках
+rotate_ip = true    # смена IP через выбранный транспорт при блокировках
 adb_serial = ""     # серийник устройства для adb (пусто — adb без -s)
 login = ""          # опционально: логин HTTP (tinyproxy BasicAuth)
 password = ""       # опционально: пароль HTTP (tinyproxy BasicAuth)
@@ -170,20 +173,20 @@ user = "u0_a123"        # пользователь SSH (whoami в Termux)
 password = "***"        # пароль SSH
 ```
 
-Требуется `paramiko` (`pip install -r requirements.txt`) и на телефоне:
-`pkg install tinyproxy openssh`, затем `sshd`. Смена IP (`rotate_ip`) выполняется
-**через adb**: телефон переводится в режим полёта и обратно (`adb shell settings put
-global airplane_mode_on 1/0` + broadcast); `adb` должен быть в `PATH`, устройство —
-в `adb_serial` (или подключено одно). После смены IP и при каждом запуске tinyproxy
-на телефоне выполняется `scripts/update_network.sh` (нужен root/`su` на телефоне).
+Для SSH нужны `paramiko`, Termux sshd и настройки секции ssh.
+Для ADB нужны adb в PATH, доступное устройство (adb_serial либо единственное
+подключённое устройство) и разрешённый root-доступ. Смена IP выполняется
+через выбранный транспорт. При SSH перед запуском/перезапуском выполняется
+scripts/fix_interfaces_via_ssh.sh (нужен root/su на телефоне).
+При ADB готовая конфигурация Termux используется без настройки интерфейсов.
 
-Логи tinyproxy пишутся на телефоне (в `tinyproxy.conf` принудительно выставляются
-`LogFile "<device_log>"` и `Syslog Off`, плюс вывод nohup перенаправляется туда) и
+Логи tinyproxy пишутся на телефоне: вывод nohup перенаправляется в файл;
+только при SSH в tinyproxy.conf выставляются LogFile и Syslog Off. Логи
 **стримятся на хост парсера** в `logs/tinyproxy.log` — фоновым процессом
 `scripts/follow_tinyproxy_log.py` (pid в `logs/tinyproxy_follow.pid`, диагностика в
 `logs/tinyproxy_follow.log`). Стрим стартует вместе с прокси и останавливается
 вместе с ним (`run_proxy.py --stop`, `scripts/stop.py`), переподключается при обрыве
-SSH. Путь лога на телефоне по умолчанию — `/data/data/com.termux/files/home/tinyproxy.log`,
+SSH/ADB. Путь лога на телефоне по умолчанию — `/data/data/com.termux/files/home/tinyproxy.log`,
 меняется флагом `python scripts/run_proxy.py --device-log <путь>`.
 
 ### Внешний мобильный прокси (`[avito.external_mobile_proxy]`)

@@ -2,12 +2,13 @@
 """Стрим лога tinyproxy с телефона на хост в logs/tinyproxy.log.
 
 Запускается фоново (utils.own_mobile_proxy._start_log_follower) при старте своего
-мобильного прокси и останавливается вместе с ним. Переподключается при обрыве SSH.
+мобильного прокси и останавливается вместе с ним. Переподключается при обрыве SSH/ADB.
 
 Запуск вручную:
     python scripts/follow_tinyproxy_log.py --remote-log /data/data/com.termux/files/home/tinyproxy.log
 """
 import argparse
+import signal
 import sys
 from pathlib import Path
 
@@ -26,8 +27,12 @@ def main(argv=None):
                         help=f"Файл лога на хосте (по умолчанию {LOCAL_LOG})")
     args = parser.parse_args(argv)
 
+    def stop_stream(signum, frame):
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, stop_stream)
     config = load_avito_config(args.config)
-    stream_remote_log(config.own_mobile_proxy.ssh, args.remote_log, args.local_log)
+    stream_remote_log(config.own_mobile_proxy, args.remote_log, args.local_log)
     return 0
 
 

@@ -1,4 +1,6 @@
 import threading
+import multiprocessing
+import os
 import time
 from pathlib import Path
 
@@ -10,6 +12,7 @@ from integrations.notifications.factory import build_notifier
 from lang import *
 from load_config import save_avito_config, load_avito_config
 from parser_cls import AvitoParse
+from parser.proxies.proxy import ProxyRotationError
 from version import VERSION
 
 
@@ -64,6 +67,9 @@ def main(page: ft.Page):
         retry_delay.value = config.retry_delay
         timeout.value = config.timeout
         block_threshold.value = config.block_threshold
+        ip_rotation_attempts.value = str(config.ip_rotation_attempts)
+        ip_rotation_timeout.value = str(config.ip_rotation_timeout)
+        ip_rotation_retry_delay.value = str(config.ip_rotation_retry_delay)
         open_full_ad.value = config.open_full_ad
         use_camoufox.value = config.camoufox.use
         camoufox_os.value = config.camoufox.os or "windows"
@@ -73,6 +79,7 @@ def main(page: ft.Page):
         use_own_mobile_proxy.value = config.own_mobile_proxy.use
         own_proxy_port.value = str(config.own_mobile_proxy.port)
         own_rotate_ip.value = config.own_mobile_proxy.rotate_ip
+        own_transport.value = config.own_mobile_proxy.transport
         own_adb_serial.value = config.own_mobile_proxy.adb_serial or ""
         own_proxy_login.value = config.own_mobile_proxy.login or ""
         own_proxy_password.value = config.own_mobile_proxy.password or ""
@@ -146,6 +153,7 @@ def main(page: ft.Page):
                 "port": to_int_safe(own_proxy_port.value, 8888),
                 "rotate_ip": own_rotate_ip.value,
                 "adb_serial": own_adb_serial.value or "",
+                "transport": own_transport.value,
                 "login": own_proxy_login.value or "",
                 "password": own_proxy_password.value or "",
                 "server": own_proxy_server.value or "",
@@ -181,6 +189,9 @@ def main(page: ft.Page):
             "retry_delay": to_int_safe(retry_delay.value, 5),
             "timeout": to_int_safe(timeout.value, 20),
             "block_threshold": to_int_safe(block_threshold.value, 3),
+            "ip_rotation_attempts": to_int_safe(ip_rotation_attempts.value, 3),
+            "ip_rotation_timeout": to_float_safe(ip_rotation_timeout.value, 90),
+            "ip_rotation_retry_delay": to_float_safe(ip_rotation_retry_delay.value, 5),
             "open_full_ad": open_full_ad.value,
         }}
 
@@ -359,9 +370,19 @@ def main(page: ft.Page):
 
     def run_process():
         config = load_avito_config("config.toml")
-        parser = AvitoParse(config, stop_event=stop_event)
-        parser.parse()
-        parser.close()
+        parser = None
+        try:
+            parser = AvitoParse(config, stop_event=stop_event)
+            parser.parse()
+        except ProxyRotationError as err:
+            logger.critical(f"Парсер завершается после неудачной смены IP: {err}")
+            if parser is not None:
+                parser.close()
+            # SystemExit в фоновом потоке Flet не завершает процесс приложения.
+            os._exit(1)
+        finally:
+            if parser is not None:
+                parser.close()
         start_btn.disabled = False
         start_btn.text = "Старт"
         start_btn.visible = True
@@ -522,6 +543,9 @@ def main(page: ft.Page):
                                       tooltip=TIMEOUT_HELP)
     block_threshold = ft.TextField(label="Попыток перед разблокировкой", width=300, text_size=12, height=40, expand=True,
                                       tooltip=BLOCK_THRESHOLD_HELP)
+    ip_rotation_attempts = ft.TextField(label="Попыток смены IP", value="3", expand=True, text_size=12)
+    ip_rotation_timeout = ft.TextField(label="Таймаут смены IP, сек", value="90", expand=True, text_size=12)
+    ip_rotation_retry_delay = ft.TextField(label="Пауза между сменами IP, сек", value="5", expand=True, text_size=12)
 
     # Полное описание объявлений
     open_full_ad = ft.Checkbox("Открывать страницы и брать ПОЛНОЕ описание", value=False,
@@ -539,12 +563,14 @@ def main(page: ft.Page):
     camoufox_humanize = ft.Checkbox("Человеческие движения", value=True)
     camoufox_geoip = ft.Checkbox("Гео под IP прокси", value=True)
 
-    # Свой мобильный прокси (tinyproxy на телефоне по SSH)
-    use_own_mobile_proxy = ft.Checkbox("Свой мобильный прокси (tinyproxy на телефоне по SSH)", value=False,
-                                       tooltip="tinyproxy запускается на телефоне по SSH через nohup; "
+    # Свой мобильный прокси (tinyproxy на телефоне через SSH/ADB)
+    use_own_mobile_proxy = ft.Checkbox("Свой мобильный прокси (tinyproxy на телефоне через SSH/ADB)", value=False,
+                                       tooltip="tinyproxy запускается на телефоне через SSH/ADB через nohup; "
                                                "порты не пробрасываются, парсер ходит на ip:порт телефона")
     own_proxy_port = ft.TextField(label="Порт tinyproxy на телефоне", value="8888", width=180, text_size=12, height=40)
-    own_rotate_ip = ft.Checkbox("Смена IP (airplane mode через adb)", value=True)
+    own_transport = ft.Dropdown(label="Управление телефоном: SSH / ADB", value="ssh",
+                                  options=[ft.dropdown.Option("ssh"), ft.dropdown.Option("adb")], width=320)
+    own_rotate_ip = ft.Checkbox("Смена IP (airplane mode)", value=True)
     own_adb_serial = ft.TextField(label="Серийник устройства (adb)", value="", width=200, text_size=12, height=40,
                                   tooltip="adb -s SERIAL. Пусто — adb без -s (одно подключённое устройство)")
     own_proxy_login = ft.TextField(label="Логин HTTP", value="", width=150, text_size=12, height=40)
@@ -660,6 +686,7 @@ def main(page: ft.Page):
                                             ft.Divider(),
                                             use_own_mobile_proxy,
                                             ft.Row([own_proxy_port, own_rotate_ip, own_adb_serial]),
+                                            own_transport,
                                             ft.Row([own_proxy_login, own_proxy_password]),
                                             own_proxy_server,
                                             ft.Row([ssh_host, ssh_port]),
@@ -695,6 +722,7 @@ def main(page: ft.Page):
                     ft.Row([pause_general, block_threshold]),
                     ft.Row([min_delay, max_delay]),
                     ft.Row([max_count_of_retry, retry_delay, timeout]),
+                    ft.Row([ip_rotation_attempts, ip_rotation_timeout, ip_rotation_retry_delay]),
                     open_full_ad,
                 ]
             ),
@@ -734,7 +762,6 @@ def main(page: ft.Page):
     logger_console_init()
 
 
-ft.app(
-    target=main,
-    assets_dir="assets",
-)
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
+    ft.app(target=main, assets_dir="assets")

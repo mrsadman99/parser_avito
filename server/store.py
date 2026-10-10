@@ -11,7 +11,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from dto import LinkConfig
+from dto import LinkConfig, ParseTarget, web_link_key
 
 DB_PATH = Path("storage/web.db")
 
@@ -29,6 +29,7 @@ def _connect() -> sqlite3.Connection:
 
 # Колонки, добавляемые в старые БД (миграция)
 _LINK_EXTRA_COLUMNS = {
+    "revision": "INTEGER NOT NULL DEFAULT 0",
     "geo": "TEXT",
     "start_date": "TEXT",
     "ignore_reserv": "INTEGER NOT NULL DEFAULT 1",
@@ -44,6 +45,7 @@ def _bool_int(value, default: bool) -> int:
 def init_db() -> None:
     with _connect() as conn:
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -261,7 +263,8 @@ def update_link(user_id: int, link_id: int, data: dict) -> dict | None:
             """
             UPDATE links SET
                 url = ?, min_price = ?, max_price = ?, white_list = ?, black_list = ?,
-                geo = ?, start_date = ?, ignore_reserv = ?, ignore_promotion = ?, updated_at = ?
+                geo = ?, start_date = ?, ignore_reserv = ?, ignore_promotion = ?, updated_at = ?,
+                revision = revision + 1
             WHERE id = ? AND user_id = ?
             """,
             (
@@ -293,17 +296,22 @@ def delete_link(user_id: int, link_id: int) -> bool:
         return cur.rowcount > 0
 
 
-def get_all_links() -> dict[str, LinkConfig]:
-    """Все ссылки всех пользователей (для парсера).
+def get_link(link_id: int) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM links WHERE id = ?", (link_id,)).fetchone()
+    if row is None:
+        return None
+    return {**_link_to_dict(row), "user_id": row["user_id"]}
 
-    Дубликаты по URL схлопываются — берётся последняя запись.
-    """
+
+def get_all_links() -> dict[str, ParseTarget]:
+    """Подписки по ID: одинаковые URL сохраняют независимые фильтры."""
     with _connect() as conn:
         rows = conn.execute("SELECT * FROM links ORDER BY id").fetchall()
 
-    result: dict[str, LinkConfig] = {}
+    result: dict[str, ParseTarget] = {}
     for row in rows:
-        result[row["url"]] = LinkConfig(
+        config = LinkConfig(
             min_price=row["min_price"],
             max_price=row["max_price"],
             white_list=json.loads(row["white_list"] or "[]"),
@@ -312,6 +320,9 @@ def get_all_links() -> dict[str, LinkConfig]:
             start_date=row["start_date"],
             ignore_reserv=bool(row["ignore_reserv"]),
             ignore_promotion=bool(row["ignore_promotion"]),
+        )
+        result[web_link_key(row["id"], row["url"])] = ParseTarget(
+            url=row["url"], config=config, revision=row["revision"],
         )
     return result
 
@@ -348,7 +359,8 @@ def update_link_any(link_id: int, data: dict) -> dict | None:
             """
             UPDATE links SET
                 url = ?, min_price = ?, max_price = ?, white_list = ?, black_list = ?,
-                geo = ?, start_date = ?, ignore_reserv = ?, ignore_promotion = ?, updated_at = ?
+                geo = ?, start_date = ?, ignore_reserv = ?, ignore_promotion = ?, updated_at = ?,
+                revision = revision + 1
             WHERE id = ?
             """,
             (

@@ -32,6 +32,9 @@ max_count_of_retry = 5               # макс. повторов запроса
 retry_delay = 5                      # пауза между повторами, сек
 timeout = 20                         # таймаут запроса, сек
 block_threshold = 3                  # блокировок до «обработки бана»
+ip_rotation_attempts = 3             # полных попыток смены IP; затем парсер завершится с ошибкой
+ip_rotation_timeout = 90             # таймаут всей попытки смены IP, сек (включая ADB/SSH)
+ip_rotation_retry_delay = 5          # пауза между попытками смены IP, сек
 
 # --- Фоновый режим ---
 detached_mode = false                # true — прокси/парсер/API в фоне (detached), false — в tmux
@@ -59,15 +62,16 @@ geoip = true                         # гео/locale под IP прокси (н�
 
 
 # --- Свой мобильный прокси (tinyproxy на телефоне через SSH, без adb forward) ---
-# tinyproxy запускается на телефоне по SSH через `nohup` (без tmux) и живёт
+# tinyproxy запускается на телефоне через SSH/ADB через `nohup` (без tmux) и живёт
 # независимо от SSH-сессии. При каждом запуске старый процесс останавливается.
 # Порты НЕ пробрасываются: адрес прокси = {server}:{port} (пусто = ssh.host),
 # парсер обращается туда напрямую. На телефоне: pkg install tinyproxy openssh.
-# Смена IP (rotate_ip) — режим полёта и обратно через adb (нужен adb в PATH).
+# Смена IP (rotate_ip) — режим полёта через выбранный transport.
 [avito.own_mobile_proxy]
+transport = "ssh" # все команды телефона: ssh или adb (root + Termux)
 use = false                          # true — трафик через телефон (свой мобильный прокси)
 port = 8888                          # порт tinyproxy на телефоне
-rotate_ip = true                     # смена IP через adb (airplane mode) при блокировке
+rotate_ip = true                     # смена IP (airplane mode) при блокировке
 adb_serial = ""                      # серийник устройства для adb (пусто — adb без -s)
 login = ""                           # опционально: логин HTTP (tinyproxy BasicAuth)
 password = ""                        # опционально: пароль HTTP (tinyproxy BasicAuth)

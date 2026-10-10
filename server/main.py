@@ -24,6 +24,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from db_service import SQLiteDBHandler
+from dto import web_link_key
 from load_config import load_avito_config
 from server import store
 
@@ -174,9 +175,7 @@ def _config_links() -> list[dict]:
 def list_links(actor: dict = Depends(current_actor)):
     if actor["is_admin"]:
         db_links = store.list_all_links()
-        db_urls = {link["url"] for link in db_links}
-        config_links = [link for link in _config_links() if link["url"] not in db_urls]
-        return config_links + db_links
+        return _config_links() + db_links
     return store.list_links(actor["id"])
 
 
@@ -213,9 +212,24 @@ def delete_link(link_id: int, actor: dict = Depends(current_actor)):
 
 
 @app.get("/api/ads")
-def list_ads(url: str, actor: dict = Depends(current_actor)):
-    """Запарсенные объявления по исходной ссылке (из базы парсера)."""
-    return SQLiteDBHandler().list_ads(url)
+def list_ads(url: str | None = None, link_id: int | None = None,
+             actor: dict = Depends(current_actor)):
+    """Результаты конкретной подписки с проверкой её владельца."""
+    if link_id is not None:
+        link = store.get_link(link_id)
+        if link is None or (not actor["is_admin"] and link["user_id"] != actor["id"]):
+            raise HTTPException(status_code=404, detail="Ссылка не найдена")
+        return SQLiteDBHandler().list_ads(link["url"], source_keys=[web_link_key(link_id, link["url"])])
+    if not url:
+        raise HTTPException(status_code=422, detail="Укажите link_id или url")
+    if actor["is_admin"]:
+        # URL используется для ссылок из TOML и старых записей без владельца.
+        return SQLiteDBHandler().list_ads(url)
+    keys = [web_link_key(link["id"], link["url"]) for link in store.list_links(actor["id"])
+            if link["url"] == url]
+    if not keys:
+        raise HTTPException(status_code=404, detail="Ссылка не найдена")
+    return SQLiteDBHandler().list_ads(url, source_keys=keys)
 
 
 # Раздача собранного фронтенда (production, python run.py без --dev)
