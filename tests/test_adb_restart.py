@@ -15,16 +15,30 @@ def result(code=0, stdout='', stderr=''):
 
 class AdbRestartTests(unittest.TestCase):
     def test_termux_uid_and_shell_quoting(self):
-        command = "echo 'hello'; export HOME=/data/data/com.termux/files/home"
+        command = "printf '%s\\n' \"$HOME\"; echo 'hello'"
         with patch.object(mobile, '_adb', side_effect=[result(stdout='10234'), result(stdout='ok')]) as adb:
             client = mobile._AdbTermuxClient('device-1')
             self.assertEqual(client.run(command, 12), (0, 'ok', ''))
         args, kwargs = adb.call_args
         self.assertEqual(args[:2], ('device-1', 'shell'))
-        outer = shlex.split(args[2])
-        inner = shlex.split(outer[2])
-        self.assertEqual(inner, ['su', '10234', '-s', mobile.TERMUX_PREFIX + '/bin/bash', '-c', command])
+        inner = shlex.split(args[2])
+        self.assertEqual(inner, ['su', '10234', 'run-as', 'com.termux', '/usr/bin/bash', '-lc', command])
         self.assertEqual(kwargs['timeout'], 12)
+
+    def test_adb_commands_and_tail_do_not_export_ssh_environment(self):
+        client = mobile._AdbTermuxClient.__new__(mobile._AdbTermuxClient)
+        client.uid = '10241'
+        commands = [mobile._remote_stop_command(), mobile._remote_kill_command(),
+                    mobile._remote_status_command(), mobile._remote_start_command(mobile.DEFAULT_DEVICE_LOG),
+                    mobile.REMOTE_ENV + 'exec tail -n +1 -F ' + mobile.DEFAULT_DEVICE_LOG]
+        for command in commands:
+            with self.subTest(command=command):
+                actual = client.shell_command(command)
+                self.assertNotIn('export ', actual)
+                self.assertNotIn('mkdir -p', actual)
+                args = shlex.split(actual)
+                self.assertEqual(args[:6], ['su', '10241', 'run-as', 'com.termux', '/usr/bin/bash', '-lc'])
+                self.assertEqual(args[6], command.removeprefix(mobile.REMOTE_ENV))
 
     def test_reject_missing_root_and_invalid_uid(self):
         for response in (None, result(1), result(stdout='0'), result(stdout='invalid')):

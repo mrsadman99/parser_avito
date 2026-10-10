@@ -129,9 +129,11 @@ npm run build
 
 ADB требует доступного устройства, разрешённого root-доступа для ADB shell и
 Termux, установленного Termux (com.termux), tinyproxy, bash, coreutils и procps.
-Команды выполняются с UID владельца домашнего каталога Termux и его окружением.
-Используется Magisk-совместимый su USER -s SHELL -c COMMAND:
-https://github.com/topjohnwu/Magisk/blob/master/docs/tools.md.
+UID определяется по владельцу домашнего каталога Termux. Команды выполняются
+через su UID run-as com.termux /usr/bin/bash -lc COMMAND. Окружение
+задаёт login shell Termux; PREFIX, HOME, PATH, LD_LIBRARY_PATH и TMPDIR
+в ADB-команды не подставляются. Строка COMMAND передаётся одним аргументом
+с корректным shell quoting.
 При transport=adb SSH-соединения не открываются. Сетевые интерфейсы, Bind,
 LogFile и Syslog не изменяются: используется готовый tinyproxy.conf в Termux.
 При SSH перед запуском выполняется scripts/fix_interfaces_via_ssh.sh

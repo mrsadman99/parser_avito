@@ -531,7 +531,7 @@ def _rotate_airplane(adb_serial) -> bool:
 
 
 class _AdbTermuxClient:
-    """ADB → root → UID Termux; tinyproxy и сетевой скрипт работают с UID приложения."""
+    """ADB → su UID → run-as com.termux → login shell Termux."""
 
     def __init__(self, serial):
         self.serial = serial
@@ -546,9 +546,10 @@ class _AdbTermuxClient:
         self.uid = uid
 
     def shell_command(self, command):
-        # Два уровня quoting: Android shell и shell, запущенный через root su.
-        inner = f"su {self.uid} -s {TERMUX_PREFIX}/bin/bash -c {shlex.quote(command)}"
-        return "su -c " + shlex.quote(inner)
+        # Общие команды содержат окружение для SSH; ADB использует login shell Termux.
+        command = command.removeprefix(REMOTE_ENV)
+        return shlex.join(["su", self.uid, "run-as", "com.termux",
+                           "/usr/bin/bash", "-lc", command])
 
     def run(self, command, timeout=60):
         result = _adb(self.serial, "shell", self.shell_command(command), timeout=timeout)
