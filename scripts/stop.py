@@ -127,7 +127,7 @@ def stop_tmux(name: str, dry_run: bool) -> None:
     subprocess.run(["tmux", "kill-session", "-t", name], check=False)
 
 
-def stop_own_proxy(dry_run: bool) -> None:
+def stop_own_proxy(dry_run: bool) -> int:
     """Остановка своего мобильного прокси: tinyproxy на телефоне (nohup, через выбранный транспорт SSH/ADB).
 
     Чистит процесс даже если [avito.own_mobile_proxy].use = false — достаточно
@@ -137,35 +137,24 @@ def stop_own_proxy(dry_run: bool) -> None:
         config = load_avito_config("config.toml")
     except Exception as err:
         print(f"  ⚠️ Не удалось прочитать config.toml: {err}")
-        return
-
-    own = getattr(config, "own_mobile_proxy", None)
-    use = getattr(own, "use", False)
-    ssh_host = (getattr(getattr(own, "ssh", None), "host", "") or "").strip()
-    if own is None or (own.transport == "ssh" and not ssh_host):
         if not dry_run:
-            from utils.tinyproxy_forward import stop_forward
-            try:
-                stop_forward()
-            except Exception as err:
-                print(f"  proxy: не удалось остановить TCP-проброс: {err}")
-        else:
-            print("  proxy: TCP-проброс tinyproxy будет остановлен")
-        if use:
-            print("  proxy: ssh.host не задан — не могу остановить tinyproxy на телефоне")
-        return
+            from utils.own_mobile_proxy import stop_proxy
+            stop_proxy(None, force=True)
+        return 1
 
     if dry_run:
-        print("  proxy: tinyproxy (nohup) на телефоне и TCP-проброс будут остановлены")
-        return
+        print("  proxy: tinyproxy (nohup), стрим логов и TCP-проброс будут остановлены")
+        return 0
 
     from utils.own_mobile_proxy import stop_proxy
 
     print("  proxy: останавливаю tinyproxy (nohup) на телефоне...")
-    if stop_proxy(config, force=True) == 0:
+    result = stop_proxy(config, force=True)
+    if result == 0:
         print("  proxy: tinyproxy остановлен")
     else:
         print("  proxy: ⚠️ не удалось остановить tinyproxy")
+    return result
 
 
 def main(argv=None):
@@ -186,12 +175,14 @@ def main(argv=None):
     for name in TMUX_SESSIONS:
         stop_tmux(name, args.dry_run)
 
+    result = 0
     if not args.keep_proxy:
         print("Свой мобильный прокси (телефон):")
-        stop_own_proxy(args.dry_run)
+        result = stop_own_proxy(args.dry_run)
 
-    print("Dry-run: ничего не изменено." if args.dry_run else "Готово.")
-    return 0
+    print("Dry-run: ничего не изменено." if args.dry_run else
+          "Готово." if result == 0 else "Остановка завершена с ошибками.")
+    return result
 
 
 if __name__ == "__main__":

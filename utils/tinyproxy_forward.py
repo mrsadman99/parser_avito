@@ -1,5 +1,4 @@
 """Прямой TCP-проброс ADB: порт сервера → порт tinyproxy на телефоне."""
-from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -12,6 +11,7 @@ from urllib.parse import urlsplit
 from loguru import logger
 
 from utils.adb import run_adb
+from utils.background_process import alive as _alive, stop as _stop_process, locked
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE = ROOT / "logs" / "tinyproxy_forward.json"
@@ -36,51 +36,20 @@ def proxy_address(server, ports):
     return f"{host}:{port if port is not None else ports[0]}"
 
 
-@contextmanager
 def _locked():
-    LOCK.parent.mkdir(parents=True, exist_ok=True)
-    with open(LOCK, "a+b") as handle:
-        if os.name == "nt":
-            import msvcrt
-            handle.write(b"0")
-            handle.flush()
-            handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            if os.name == "nt":
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    return locked(LOCK)
 
 
 def _read_state():
     try:
         state = json.loads(STATE.read_text())
-        if (type(state.get("pid")) is int and state["pid"] > 0
+        if (type(state.get("pid")) is int and state["pid"] > 1
                 and all(type(state.get(key)) is int and 1 <= state[key] <= 65535
                         for key in ("phone_port", "local_port"))):
             return state
     except (OSError, ValueError, AttributeError):
         pass
     return None
-
-
-def _alive(pid):
-    try:
-        os.waitpid(pid, os.WNOHANG)
-    except (OSError, ChildProcessError):
-        pass
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
 
 
 def _forward(serial, local_port, phone_port):
@@ -91,20 +60,34 @@ def _forward(serial, local_port, phone_port):
 
 
 def _remove_forward(state):
-    run_adb(state.get("serial"), "forward", "--remove", f"tcp:{state['local_port']}", timeout=10)
+    serial, endpoint = state.get("serial"), f"tcp:{state['local_port']}"
+    result = run_adb(serial, "forward", "--remove", endpoint, timeout=10)
+    if result is not None and result.returncode == 0:
+        return
+    # Монитор мог уже удалить этот порт при выходе. Подтверждаем отсутствие,
+    # а не игнорируем все ошибки --remove (offline, timeout, permission denied).
+    listing = run_adb(serial, "forward", "--list", timeout=10)
+    if listing is not None and listing.returncode == 0:
+        entries = [line.split() for line in listing.stdout.splitlines()]
+        if not any(len(entry) >= 3 and entry[1] == endpoint
+                   and (not serial or entry[0] == serial) for entry in entries):
+            return
+    error = (result.stderr.strip() or result.stdout.strip()) if result is not None else "ADB недоступен / timeout"
+    raise RuntimeError(f"Не удалось удалить ADB forward {endpoint}: {error}")
 
 
 def _stop(state):
-    if _alive(state["pid"]):
-        os.kill(state["pid"], signal.SIGTERM)
-        deadline = time.monotonic() + 15
-        while _alive(state["pid"]) and time.monotonic() < deadline:
-            time.sleep(0.1)
-        if _alive(state["pid"]):
-            os.kill(state["pid"], signal.SIGKILL)
-            raise RuntimeError("TCP-проброс не завершился после SIGTERM; повторите остановку")
+    _stop_process(state["pid"], scripts=(SCRIPT, ROOT / "scripts" / "forward_tinyproxy.py"))
+    current = _read_state()
+    if current is None or current == state:
+        # Повторная проверка нужна и после успешного finally монитора: он мог
+        # получить ошибку ADB или быть убит во время удаления порта.
+        try:
+            _remove_forward(state)
+        except Exception:
+            STATE.write_text(json.dumps(state))
+            raise
     if _read_state() == state:
-        _remove_forward(state)
         STATE.unlink(missing_ok=True)
 
 

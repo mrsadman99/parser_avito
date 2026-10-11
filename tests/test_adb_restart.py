@@ -20,20 +20,21 @@ class AdbRestartTests(unittest.TestCase):
         self.stop_forward = patch.object(mobile, 'stop_forward').start()
         self.addCleanup(patch.stopall)
 
-    def test_termux_uid_and_shell_quoting(self):
+    def test_termux_run_as_without_su_and_shell_quoting(self):
         command = "printf '%s\\n' \"$HOME\"; echo 'hello'"
-        with patch.object(mobile, '_adb', side_effect=[result(stdout='10234'), result(stdout='ok')]) as adb:
+        with patch.object(mobile, '_adb', side_effect=[result(), result(stdout='ok')]) as adb:
             client = mobile._AdbTermuxClient('device-1')
             self.assertEqual(client.run(command, 12), (0, 'ok', ''))
         args, kwargs = adb.call_args
         self.assertEqual(args[:2], ('device-1', 'shell'))
         inner = shlex.split(args[2])
-        self.assertEqual(inner, ['su', '10234', 'run-as', 'com.termux', '/usr/bin/bash', '-lc', command])
+        self.assertEqual(inner, ['run-as', 'com.termux', '/usr/bin/bash', '-lc', command])
         self.assertEqual(kwargs['timeout'], 12)
+        self.assertEqual(shlex.split(adb.call_args_list[0].args[2]),
+                         ['run-as', 'com.termux', '/usr/bin/bash', '-lc', 'true'])
 
     def test_adb_commands_and_tail_do_not_export_ssh_environment(self):
         client = mobile._AdbTermuxClient.__new__(mobile._AdbTermuxClient)
-        client.uid = '10241'
         commands = [mobile._remote_stop_command(), mobile._remote_kill_command(),
                     mobile._remote_status_command(), mobile._remote_start_command(mobile.DEFAULT_DEVICE_LOG),
                     mobile.REMOTE_ENV + 'exec tail -n +1 -F ' + mobile.DEFAULT_DEVICE_LOG]
@@ -43,14 +44,20 @@ class AdbRestartTests(unittest.TestCase):
                 self.assertNotIn('export ', actual)
                 self.assertNotIn('mkdir -p', actual)
                 args = shlex.split(actual)
-                self.assertEqual(args[:6], ['su', '10241', 'run-as', 'com.termux', '/usr/bin/bash', '-lc'])
-                self.assertEqual(args[6], command.removeprefix(mobile.REMOTE_ENV))
+                self.assertEqual(args[:4], ['run-as', 'com.termux', '/usr/bin/bash', '-lc'])
+                self.assertEqual(args[4], command.removeprefix(mobile.REMOTE_ENV))
 
-    def test_reject_missing_root_and_invalid_uid(self):
-        for response in (None, result(1), result(stdout='0'), result(stdout='invalid')):
+    def test_reject_unavailable_run_as(self):
+        for response in (None, result(1, stderr='run-as: package not debuggable: com.termux')):
             with self.subTest(response=response), patch.object(mobile, '_adb', return_value=response):
                 with self.assertRaises(RuntimeError):
                     mobile._AdbTermuxClient(None)
+
+    def test_run_as_failure_keeps_android_error_in_diagnostics(self):
+        error = 'run-as: package not debuggable: com.termux'
+        with patch.object(mobile, '_adb', return_value=result(1, stderr=error)):
+            with self.assertRaisesRegex(RuntimeError, 'package not debuggable: com.termux'):
+                mobile._AdbTermuxClient('device')
 
     def test_rotation_uses_adb_without_ssh(self):
         for ok in (True, False):
@@ -64,13 +71,13 @@ class AdbRestartTests(unittest.TestCase):
                 ssh.assert_not_called()
 
     def test_network_failure_does_not_start_proxy(self):
-        with patch.object(mobile, '_run_remote', return_value=(1, '', '')) as run, \
+        with patch.object(mobile, '_run_remote', side_effect=[(1, '', ''), (0, 'stopped', '')]) as run, \
              patch.object(mobile, '_fix_interfaces_via_ssh', return_value=False):
             self.assertFalse(mobile._restart_tinyproxy(Mock(), mobile.DEFAULT_DEVICE_LOG)[0])
-            self.assertEqual(run.call_count, 1)
+            self.assertEqual(run.call_count, 2)
 
     def test_dead_process_is_failure(self):
-        with patch.object(mobile, '_run_remote', side_effect=[(0, '', ''), (0, 'started', ''), (0, 'stopped', '')]), \
+        with patch.object(mobile, '_run_remote', side_effect=[(0, '', ''), (0, 'stopped', ''), (0, 'started', ''), (0, 'stopped', '')]), \
              patch.object(mobile, '_fix_interfaces_via_ssh', return_value=True), \
              patch.object(mobile, '_ensure_logfile', return_value=True), patch.object(mobile.time, 'sleep'):
             self.assertFalse(mobile._restart_tinyproxy(Mock(), mobile.DEFAULT_DEVICE_LOG)[0])
@@ -91,12 +98,13 @@ class AdbRestartTests(unittest.TestCase):
                  patch.object(mobile, '_connect') as ssh, \
                  patch.object(mobile, '_restart_tinyproxy', return_value=(True, 'running')), \
                  patch.object(mobile, '_start_log_follower'), patch.object(mobile, '_stop_log_follower'), \
-                 patch.object(mobile, '_run_remote', side_effect=[(0, 'running', ''), (0, '', ''), (0, 'running', ''), (0, '', ''), (0, 'stopped', '')]):
+                 patch.object(mobile, '_run_remote', side_effect=[(0, 'running', ''), (0, '', ''), (0, '', ''), (0, 'running', ''), (0, 'stopped', '')]), \
+                 patch.object(mobile.time, 'sleep'):
                 self.assertEqual(mobile.start_proxy(config), 0)
                 self.assertTrue(mobile.service_running(config))
                 self.assertEqual(mobile.stop_proxy(config), 0)
                 selected, unused = (adb, ssh) if transport == 'adb' else (ssh, adb)
-                self.assertEqual(selected.call_count, 4)
+                self.assertEqual(selected.call_count, 3)
                 unused.assert_not_called()
 
     def test_ssh_rotation_controls_phone_over_ssh_and_restores_adb_forward(self):
@@ -128,17 +136,19 @@ class AdbRestartTests(unittest.TestCase):
     def test_adb_log_stream_uses_selected_device(self):
         import tempfile
         client = mobile._AdbTermuxClient.__new__(mobile._AdbTermuxClient)
-        client.serial, client.uid = 'test-device', '10234'
+        client.serial = 'test-device'
         with tempfile.TemporaryDirectory() as directory, \
              patch.object(mobile, '_open_control', return_value=client), \
              patch.object(mobile, '_connect') as ssh, \
              patch.object(mobile, 'stream_adb', return_value=1) as stream, \
+             patch.object(mobile, '_run_remote', return_value=(0, '', '')) as cleanup, \
              patch.object(mobile.time, 'sleep', side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):
                 mobile.stream_remote_log(Mock(), '/phone/log', directory + '/log')
             self.assertEqual(stream.call_args.args[0], 'test-device')
             self.assertEqual(stream.call_args.args[1][0], 'shell')
             self.assertIn('tail -n +1 -F', stream.call_args.args[1][1])
+            cleanup.assert_called_once()
             ssh.assert_not_called()
 
     def test_stop_script_accepts_adb_without_ssh_host(self):
@@ -168,6 +178,7 @@ class AdbRestartTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, \
              patch.object(mobile, '_connect', return_value=client), \
              patch.object(mobile.subprocess, 'Popen') as popen, \
+             patch.object(mobile, '_run_remote', return_value=(0, '', '')) as cleanup, \
              patch.object(mobile.time, 'sleep', side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):
                 mobile.stream_remote_log(own, '/phone/log', directory + '/log')
@@ -175,21 +186,23 @@ class AdbRestartTests(unittest.TestCase):
             self.assertEqual(Path(directory + '/log').read_bytes(), b'log line')
             popen.assert_not_called()
             client.close.assert_called_once()
+            channel.close.assert_called_once()
+            cleanup.assert_called_once()
 
     def test_adb_restart_preserves_network_and_existing_config(self):
         client = mobile._AdbTermuxClient.__new__(mobile._AdbTermuxClient)
-        client.uid, client.serial = '10241', 'device'
-        with patch.object(mobile, '_run_remote', side_effect=[(0, '', ''), (0, 'started', ''), (0, 'running', '')]) as run, \
+        client.serial = 'device'
+        with patch.object(mobile, '_run_remote', side_effect=[(0, '', ''), (0, 'stopped', ''), (0, 'started', ''), (0, 'running', '')]) as run, \
              patch.object(mobile, '_fix_interfaces_via_ssh') as fix, \
              patch.object(mobile, '_ensure_logfile') as edit_config, patch.object(mobile.time, 'sleep'):
             self.assertTrue(mobile._restart_tinyproxy(client, mobile.DEFAULT_DEVICE_LOG)[0])
             fix.assert_not_called()
             edit_config.assert_not_called()
-            self.assertEqual(run.call_count, 3)
+            self.assertEqual(run.call_count, 4)
             commands = [c.args[1] for c in run.call_args_list]
             self.assertIn('pkill -x tinyproxy', commands[0])
-            self.assertIn('nohup /data/data/com.termux/files/usr/bin/tinyproxy -d -c ', commands[1])
-            self.assertIn('pgrep -x tinyproxy', commands[2])
+            self.assertIn('nohup /data/data/com.termux/files/usr/bin/tinyproxy -d -c ', commands[2])
+            self.assertIn('pgrep -x tinyproxy', commands[3])
             self.assertNotIn('sed ', ''.join(commands))
             self.assertNotIn('base64', ''.join(commands))
 
@@ -197,7 +210,7 @@ class AdbRestartTests(unittest.TestCase):
         steps = []
         def run(client, command, timeout=60):
             steps.append(command)
-            return 0, 'running', ''
+            return 0, 'stopped' if 'pgrep' in command and 'fix' not in steps else 'running', ''
         def fix(client):
             steps.append('fix')
             return True
@@ -209,8 +222,8 @@ class AdbRestartTests(unittest.TestCase):
              patch.object(mobile, '_ensure_logfile', side_effect=logfile), patch.object(mobile.time, 'sleep'):
             self.assertTrue(mobile._restart_tinyproxy(Mock(), mobile.DEFAULT_DEVICE_LOG)[0])
         self.assertIn('pkill', steps[0])
-        self.assertEqual(steps[1:3], ['fix', 'logfile'])
-        self.assertIn('nohup', steps[3])
+        self.assertEqual(steps[2:4], ['fix', 'logfile'])
+        self.assertIn('nohup', steps[4])
 
     def test_ssh_interface_script_uses_renamed_local_and_remote_paths(self):
         with patch.object(mobile, '_run_remote', return_value=(0, '', '')) as run:

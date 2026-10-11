@@ -97,7 +97,7 @@ class ForwardLifecycleTests(unittest.TestCase):
             spawn.assert_not_called()
 
     def test_stop_removes_only_owned_adb_port(self):
-        with patch.object(forward, 'run_adb') as adb:
+        with patch.object(forward, 'run_adb', return_value=subprocess.CompletedProcess([], 0, '', '')) as adb:
             forward._remove_forward(dict(serial='device', local_port=45678))
         adb.assert_called_once_with('device', 'forward', '--remove', 'tcp:45678', timeout=10)
 
@@ -204,6 +204,7 @@ class ForwardMonitorTests(unittest.TestCase):
                  patch.object(forward, 'SCRIPT', script), \
                  patch.object(forward, '_forward') as restore, \
                  patch.object(forward, '_remove_forward'):
+                state = None
                 try:
                     forward.ensure_forward('device', [15556, 5556])
                     state = forward._read_state()
@@ -214,7 +215,13 @@ class ForwardMonitorTests(unittest.TestCase):
                     self.assertEqual(forward._read_state(), state)
                     restore.assert_called_once_with('device', 15556, 5556)
                 finally:
-                    forward.stop_forward()
+                    try:
+                        forward.stop_forward()
+                    finally:
+                        if state:
+                            # Не оставляем тестовый процесс даже если сама
+                            # проверяемая остановка выбросила исключение.
+                            forward._stop_process(state['pid'], timeout=.1)
                 self.assertFalse(forward._alive(state['pid']))
                 self.assertIsNone(forward._read_state())
                 self.assertIn("'remove', 15556", (root / 'calls.log').read_text())

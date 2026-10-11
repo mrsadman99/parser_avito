@@ -69,7 +69,7 @@ geoip = true                         # гео/locale под IP прокси (н�
 # На телефоне: pkg install tinyproxy openssh. Port в tinyproxy.conf должен быть равен port2.
 # Смена IP (rotate_ip) — режим полёта через выбранный transport.
 [avito.own_mobile_proxy]
-transport = "ssh" # все команды телефона: ssh или adb (root + Termux)
+transport = "ssh" # управление: ssh или adb (run-as com.termux; root для режима полёта)
 use = false                          # true — трафик через телефон (свой мобильный прокси)
 adb_forward = [8888, 8888]            # [TCP-порт ADB на сервере, порт tinyproxy на телефоне]
 rotate_ip = true                     # смена IP (airplane mode) при блокировке

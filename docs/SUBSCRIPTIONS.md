@@ -127,13 +127,17 @@ npm run build
 Настройка доступна в GUI. Старый ключ restart_via читается как transport,
 если transport не задан. После изменения перезапустите программу и стрим логов.
 
-ADB требует доступного устройства, разрешённого root-доступа для ADB shell и
-Termux, установленного Termux (com.termux), tinyproxy, bash, coreutils и procps.
-UID определяется по владельцу домашнего каталога Termux. Команды выполняются
-через su UID run-as com.termux /usr/bin/bash -lc COMMAND. Окружение
+ADB требует доступного устройства, установленного Termux (com.termux),
+tinyproxy, bash, coreutils, procps и работающего run-as com.termux.
+Команды tinyproxy, статуса и логов выполняются через
+run-as com.termux /usr/bin/bash -lc COMMAND, без su и определения UID. Окружение
 задаёт login shell Termux; PREFIX, HOME, PATH, LD_LIBRARY_PATH и TMPDIR
 в ADB-команды не подставляются. Строка COMMAND передаётся одним аргументом
 с корректным shell quoting.
+Подключение предварительно проверяется командой `true` в том же shell.
+Если Android запрещает run-as (например, package not debuggable), ошибка
+попадает в диагностику; повышения прав через su для команд Termux нет.
+[Проверки run-as в Android](https://android.googlesource.com/platform/system/core.git/+/refs/heads/master/run-as/run-as.cpp).
 При transport=adb SSH-соединения не открываются. Сетевые интерфейсы, Bind,
 LogFile и Syslog не изменяются: используется готовый tinyproxy.conf в Termux.
 При SSH перед запуском выполняется scripts/fix_interfaces_via_ssh.sh

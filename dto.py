@@ -75,7 +75,7 @@ class OwnMobileProxyConfig:
     password: str = ""
     server: str = ""             # host или host:port прокси; без порта — adb_forward[0], пусто = localhost
     ssh: SshConfig = field(default_factory=SshConfig)
-    transport: str = "ssh"  # все команды телефона: ssh или adb (root)
+    transport: str = "ssh"  # управление: ssh или adb (run-as Termux; root для режима полёта)
     adb_forward: List[int] = field(default_factory=lambda: [8888, 8888])
 
     def __post_init__(self):
