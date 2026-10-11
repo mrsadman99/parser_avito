@@ -22,16 +22,21 @@ class AdbRestartTests(unittest.TestCase):
 
     def test_termux_run_as_without_su_and_shell_quoting(self):
         command = "printf '%s\\n' \"$HOME\"; echo 'hello'"
+        prefix = ['run-as', 'com.termux', 'files/usr/bin/env', '-C', '/data/user/0/com.termux/files/home',
+                  'PATH=/data/data/com.termux/files/usr/bin',
+                  'LD_PRELOAD=/data/data/com.termux/files/usr/lib/libtermux-exec.so',
+                  'HOME=/data/user/0/com.termux/files/home',
+                  '/data/data/com.termux/files/usr/bin/bash', '-lc']
         with patch.object(mobile, '_adb', side_effect=[result(), result(stdout='ok')]) as adb:
             client = mobile._AdbTermuxClient('device-1')
             self.assertEqual(client.run(command, 12), (0, 'ok', ''))
         args, kwargs = adb.call_args
         self.assertEqual(args[:2], ('device-1', 'shell'))
         inner = shlex.split(args[2])
-        self.assertEqual(inner, ['run-as', 'com.termux', '/usr/bin/bash', '-lc', command])
+        self.assertEqual(inner, prefix + [command])
         self.assertEqual(kwargs['timeout'], 12)
         self.assertEqual(shlex.split(adb.call_args_list[0].args[2]),
-                         ['run-as', 'com.termux', '/usr/bin/bash', '-lc', 'true'])
+                         prefix + ['true'])
 
     def test_adb_commands_and_tail_do_not_export_ssh_environment(self):
         client = mobile._AdbTermuxClient.__new__(mobile._AdbTermuxClient)
@@ -44,8 +49,13 @@ class AdbRestartTests(unittest.TestCase):
                 self.assertNotIn('export ', actual)
                 self.assertNotIn('mkdir -p', actual)
                 args = shlex.split(actual)
-                self.assertEqual(args[:4], ['run-as', 'com.termux', '/usr/bin/bash', '-lc'])
-                self.assertEqual(args[4], command.removeprefix(mobile.REMOTE_ENV))
+                self.assertEqual(args[:5], ['run-as', 'com.termux', 'files/usr/bin/env', '-C',
+                                           '/data/user/0/com.termux/files/home'])
+                self.assertEqual(args[5:8], ['PATH=/data/data/com.termux/files/usr/bin',
+                                            'LD_PRELOAD=/data/data/com.termux/files/usr/lib/libtermux-exec.so',
+                                            'HOME=/data/user/0/com.termux/files/home'])
+                self.assertEqual(args[8:10], ['/data/data/com.termux/files/usr/bin/bash', '-lc'])
+                self.assertEqual(args[10], command.removeprefix(mobile.REMOTE_ENV))
 
     def test_reject_unavailable_run_as(self):
         for response in (None, result(1, stderr='run-as: package not debuggable: com.termux')):

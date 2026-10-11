@@ -129,11 +129,19 @@ npm run build
 
 ADB требует доступного устройства, установленного Termux (com.termux),
 tinyproxy, bash, coreutils, procps и работающего run-as com.termux.
-Команды tinyproxy, статуса и логов выполняются через
-run-as com.termux /usr/bin/bash -lc COMMAND, без su и определения UID. Окружение
-задаёт login shell Termux; PREFIX, HOME, PATH, LD_LIBRARY_PATH и TMPDIR
-в ADB-команды не подставляются. Строка COMMAND передаётся одним аргументом
-с корректным shell quoting.
+Команды tinyproxy, статуса и логов выполняются без su и определения UID:
+
+```sh
+run-as com.termux files/usr/bin/env -C /data/user/0/com.termux/files/home \
+  PATH=/data/data/com.termux/files/usr/bin \
+  LD_PRELOAD=/data/data/com.termux/files/usr/lib/libtermux-exec.so \
+  HOME=/data/user/0/com.termux/files/home \
+  /data/data/com.termux/files/usr/bin/bash -lc 'COMMAND'
+```
+
+`env` задаёт рабочий каталог и переменные PATH, LD_PRELOAD, HOME перед запуском
+login shell. Экспорты окружения SSH в ADB-команды не подставляются.
+Строка COMMAND передаётся одним аргументом с корректным shell quoting.
 Подключение предварительно проверяется командой `true` в том же shell.
 Если Android запрещает run-as (например, package not debuggable), ошибка
 попадает в диагностику; повышения прав через su для команд Termux нет.

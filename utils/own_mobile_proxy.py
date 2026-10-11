@@ -31,6 +31,7 @@ FOLLOW_LOG = LOGS_DIR / "tinyproxy_follow.log"  # диагностика сам�
 DEFAULT_CONFIG = "config.toml"
 TERMUX_PREFIX = "/data/data/com.termux/files/usr"
 TERMUX_HOME = "/data/data/com.termux/files/home"
+TERMUX_RUN_AS_HOME = "/data/user/0/com.termux/files/home"
 TINYPROXY_CONF = f"{TERMUX_PREFIX}/etc/tinyproxy/tinyproxy.conf"
 DEFAULT_DEVICE_LOG = f"{TERMUX_HOME}/tinyproxy.log"
 TAIL_PID_PREFIX = f"{TERMUX_HOME}/.parser_avito_tinyproxy_tail."
@@ -560,9 +561,15 @@ class _AdbTermuxClient:
                                + (err or out or "см. logs/adb.log"))
 
     def shell_command(self, command):
-        # Общие команды содержат окружение для SSH; ADB использует login shell Termux.
+        # Убираем окружение SSH; для ADB передаём окружение и каталог через env.
         command = command.removeprefix(REMOTE_ENV)
-        return shlex.join(["run-as", "com.termux", "/usr/bin/bash", "-lc", command])
+        return shlex.join([
+            "run-as", "com.termux", "files/usr/bin/env", "-C", TERMUX_RUN_AS_HOME,
+            f"PATH={TERMUX_PREFIX}/bin",
+            f"LD_PRELOAD={TERMUX_PREFIX}/lib/libtermux-exec.so",
+            f"HOME={TERMUX_RUN_AS_HOME}",
+            f"{TERMUX_PREFIX}/bin/bash", "-lc", command,
+        ])
 
     def run(self, command, timeout=60):
         result = _adb(self.serial, "shell", self.shell_command(command), timeout=timeout)

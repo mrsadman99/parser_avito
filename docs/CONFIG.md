@@ -180,7 +180,16 @@ password = "***"        # пароль SSH
 Для ADB нужны adb в PATH, доступное устройство (adb_serial либо единственное
 подключённое устройство) и работающий `run-as com.termux` для запуска tinyproxy,
 проверки статуса и чтения логов. Эти команды выполняются без su и поиска UID:
-`run-as com.termux /usr/bin/bash -lc COMMAND`. Смена IP выполняется
+
+```sh
+run-as com.termux files/usr/bin/env -C /data/user/0/com.termux/files/home \
+  PATH=/data/data/com.termux/files/usr/bin \
+  LD_PRELOAD=/data/data/com.termux/files/usr/lib/libtermux-exec.so \
+  HOME=/data/user/0/com.termux/files/home \
+  /data/data/com.termux/files/usr/bin/bash -lc 'COMMAND'
+```
+
+Рабочий каталог и переменные окружения задаются через `env`. Смена IP выполняется
 через выбранный транспорт. При SSH перед запуском/перезапуском выполняется
 scripts/fix_interfaces_via_ssh.sh (нужен root/su на телефоне).
 При ADB готовая конфигурация Termux используется без настройки интерфейсов.
