@@ -60,6 +60,7 @@ class CamoufoxClient:
 
         self.block_count = 0
         self.error_count = 0
+        self.last_response = None
         self._block_attempts = 0
         self._manager = None
         self._browser = None
@@ -155,6 +156,7 @@ class CamoufoxClient:
                 **kwargs) -> CamoufoxResponse:
         cancellation = cancellation or Cancellation()
         cancellation.checkpoint()
+        self.last_response = None
         last_exc = None
 
         current_ip = self.get_current_ip(cancellation=cancellation)
@@ -173,6 +175,7 @@ class CamoufoxClient:
                 cancellation.checkpoint()
                 status = response.status if response else 0
                 body = response.text() if response else ""
+                self.last_response = CamoufoxResponse(text=body, status_code=status, url=str(url))
 
                 if status in self.BLOCK_CODES:
                     self._block_attempts += 1
@@ -202,7 +205,7 @@ class CamoufoxClient:
                     continue
 
                 self._block_attempts = 0
-                return CamoufoxResponse(text=body, status_code=status, url=str(url))
+                return self.last_response
 
             except (ParseCancelled, ProxyRotationError):
                 raise

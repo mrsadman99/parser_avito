@@ -29,6 +29,7 @@ class HttpClient:
         self._block_attempts = 0
         self.block_count = 0   # всего блокировок (403/429/439)
         self.error_count = 0   # всего сетевых ошибок
+        self.last_response = None  # последний ответ для диагностики неуспешного запроса
         self._client = self._build_client()
 
     def _build_client(self) -> requests.Session:
@@ -79,6 +80,9 @@ class HttpClient:
         self._client.close()
         self._client = self._build_client()
 
+    def close(self) -> None:
+        self._client.close()
+
     def get_current_ip(self, cancellation: Cancellation | None = None) -> str | None:
         """Определяет текущий внешний IP (через настроенный прокси, если он есть)."""
         cancellation = cancellation or Cancellation()
@@ -112,6 +116,7 @@ class HttpClient:
     def request(self, method: str, url: str, *, cancellation: Cancellation | None = None, **kwargs):
         cancellation = cancellation or Cancellation()
         cancellation.checkpoint()
+        self.last_response = None
         last_exc = None
 
         current_ip = self.get_current_ip(cancellation=cancellation)
@@ -126,6 +131,7 @@ class HttpClient:
                     timeout=self.timeout,
                     **kwargs,
                 )
+                self.last_response = response
                 cancellation.checkpoint()
 
                 if self.cookies:

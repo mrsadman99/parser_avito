@@ -125,6 +125,19 @@ timeout = 30
 block_threshold = 3
 ```
 
+Проверка одной ссылки использует те же клиенты и параметры, что и парсер:
+
+```sh
+python scripts/test_link.py "https://www.avito.ru/..." --mobile-proxy --no-restart --save-html ad-mobile.html --save-json ad-mobile.json
+```
+
+При `camoufox.use = true` запрос выполняет Camoufox, иначе HTTP-клиент с
+cookies из настроек. Применяются `max_count_of_retry`, `retry_delay`,
+`block_threshold` и параметры `ip_rotation_*`. После успешной смены IP
+HTTP-клиент обновляет cookies и сессию; Camoufox перезапускает браузер.
+После исчерпания попыток скрипт возвращает код 1 и сохраняет последний
+полученный HTML. Таймаут берётся из `timeout`; `--timeout` явно переопределяет его.
+
 ### `retry_on_failure` / `retry_on_failure_delay` — устарели
 
 После перехода на конкурентную обработку ссылок (каждая ссылка в своём потоке,
