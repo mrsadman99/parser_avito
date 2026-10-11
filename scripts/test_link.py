@@ -14,11 +14,15 @@
     python scripts/test_link.py "https://www.avito.ru/..." --no-proxy      # без tinyproxy
     python scripts/test_link.py "https://www.avito.ru/..." --no-restart    # не перезапускать tinyproxy
     python scripts/test_link.py "https://www.avito.ru/..." --mobile-proxy --no-restart --save-html ad.html
+    python scripts/test_link.py "https://www.avito.ru/...?..." --extract-links --pages 3 --save-links links.txt --save-json links.json
 """
 import argparse
 import json
 import sys
+import random
+import time
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit, urljoin
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -28,6 +32,7 @@ from parser.detail import parse_ad_html
 from parser.http.client import HttpClient
 from parser.http.camoufox_client import CamoufoxClient
 from parser.proxies.proxy_factory import build_proxy
+from parser.url_converter import AvitoUrlConverter
 from utils.own_mobile_proxy import ensure_own_mobile_proxy, proxy_address, start_proxy
 
 
@@ -45,11 +50,69 @@ def _build_request_client(config, proxy, timeout=None):
     return HttpClient(cookies=provider, **settings)
 
 
+def extract_item_links(payload):
+    """Распознать каталог; рекламные блоки и повторные ID пропустить."""
+    if not isinstance(payload, dict):
+        raise ValueError("Ответ каталога должен быть JSON-объектом")
+    result = payload.get("result")
+    candidates = [payload.get("catalog"),
+                  result.get("catalog") if isinstance(result, dict) else None,
+                  result, payload]
+    catalog = next((c for c in candidates if isinstance(c, dict)
+                    and isinstance(c.get("items"), list)), None)
+    if catalog is None:
+        raise ValueError("В ответе не найден список items каталога")
+    links, seen = [], set()
+    for item in catalog["items"]:
+        if not isinstance(item, dict):
+            continue
+        item_id = item.get("id")
+        if isinstance(item_id, bool) or not isinstance(item_id, (int, str)):
+            continue
+        if not str(item_id).isascii() or not str(item_id).isdigit() or int(item_id) <= 0:
+            continue
+        item_id = int(item_id)
+        if item_id in seen:
+            continue
+        seen.add(item_id)
+        path = item.get("urlPath")
+        links.append({"id": item_id, "title": item.get("title"),
+                      "url": urljoin("https://www.avito.ru", path) if isinstance(path, str) and path else None,
+                      "api_url": f"https://m.avito.ru/api/1/card/items/{item_id}"})
+    return links
+
+
+def collect_links(client, source_url, pages, config):
+    api_url = AvitoUrlConverter().convert(source_url)
+    parts = urlsplit(api_url)
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+             if k not in {"p", "page"}]
+    links, seen = [], set()
+    for page in range(1, pages + 1):
+        if page > 1:
+            time.sleep(random.uniform(config.min_delay, config.max_delay))
+        url = urlunsplit((parts.scheme, parts.netloc, parts.path,
+                         urlencode(query + [("page", str(page))]), ""))
+        response = client.request("GET", url)
+        items = extract_item_links(response.json())
+        print(f"Страница {page}: {len(items)} объявлений")
+        if not items:
+            break
+        for item in items:
+            if item["id"] not in seen:
+                seen.add(item["id"])
+                links.append(item)
+    return links
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Запуск/перезапуск tinyproxy + cookies + запрос по ссылке"
     )
-    parser.add_argument("url", help="Ссылка на объявление Avito")
+    parser.add_argument("url", help="Ссылка на объявление или выдачу Avito")
+    parser.add_argument("--extract-links", action="store_true", help="Извлечь ссылки карточек из поисковой выдачи")
+    parser.add_argument("--pages", type=int, default=1, help="Число страниц выдачи, по умолчанию 1")
+    parser.add_argument("--save-links", type=Path, help="Сохранить API-ссылки по одной на строку")
     parser.add_argument("--config", default="config.toml", help="Путь к config.toml")
     parser.add_argument("--no-proxy", action="store_true",
                         help="Не запускать tinyproxy (запрос напрямую/через конфиг-прокси)")
@@ -59,8 +122,14 @@ def main(argv=None):
     parser.add_argument("--mobile-proxy", action="store_true",
                         help="Требовать свой или внешний мобильный прокси в config.toml")
     parser.add_argument("--save-html", type=Path, help="Сохранить полный HTML ответа, включая страницу блокировки")
-    parser.add_argument("--save-json", type=Path, help="Сохранить извлечённые поля объявления в JSON")
+    parser.add_argument("--save-json", type=Path, help="Сохранить поля объявления или список ссылок (--extract-links) в JSON")
     args = parser.parse_args(argv)
+    if args.pages < 1:
+        parser.error("--pages должен быть больше нуля")
+    if not args.extract_links and (args.save_links or args.pages != 1):
+        parser.error("--pages и --save-links используются с --extract-links")
+    if args.extract_links and args.save_html:
+        parser.error("--save-html доступен только для проверки отдельной страницы")
 
     config = load_avito_config(args.config)
     if args.mobile_proxy and not (config.own_mobile_proxy.use or config.external_mobile_proxy.proxy_string):
@@ -102,6 +171,24 @@ def main(argv=None):
     print(f"Смена IP: попыток={proxy.rotation_attempts}; timeout={proxy.rotation_timeout}с; "
           f"пауза={proxy.rotation_retry_delay}с")
     result = 0
+    if args.extract_links:
+        try:
+            links = collect_links(client, args.url, args.pages, config)
+            for item in links:
+                print(item["api_url"])
+            if args.save_links:
+                args.save_links.parent.mkdir(parents=True, exist_ok=True)
+                args.save_links.write_text("".join(item["api_url"] + "\n" for item in links), encoding="utf-8")
+            if args.save_json:
+                args.save_json.parent.mkdir(parents=True, exist_ok=True)
+                args.save_json.write_text(json.dumps(links, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"Всего уникальных объявлений: {len(links)}")
+            return 0
+        except Exception as err:
+            print(f"❌ Извлечение ссылок завершилось ошибкой: {err}", file=sys.stderr)
+            return 1
+        finally:
+            client.close()
     try:
         response = client.request("GET", args.url)
     except Exception as err:
