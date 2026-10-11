@@ -106,7 +106,7 @@ class ExternalMobileProxy(Proxy):
 
 
 class OwnMobileProxy(Proxy):
-    """Tinyproxy: сервер:adb_forward[0] → ADB → телефон:adb_forward[1]."""
+    """Tinyproxy через server=host:port; без порта используется adb_forward[0]."""
 
     def __init__(self, adb_serial=None, server=None, port=8888, rotate_ip=True,
                  login=None, password=None, ssh=None, transport="ssh", adb_forward=None):

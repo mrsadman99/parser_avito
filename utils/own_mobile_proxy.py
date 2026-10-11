@@ -53,7 +53,7 @@ REMOTE_ENV = (
 # --------------------------------------------------------------------------- #
 
 def proxy_address(own) -> str:
-    """Адрес сервера с портом adb_forward[0]; пустой server = localhost."""
+    """server=host:port задаёт полный адрес; без порта используется adb_forward[0]."""
     return _forward_address(own.server, own.adb_forward)
 
 

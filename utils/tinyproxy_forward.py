@@ -21,12 +21,19 @@ SCRIPT = ROOT / "scripts" / "watch_tinyproxy_forward.py"
 
 
 def proxy_address(server, ports):
-    host = urlsplit("//" + ((server or "").strip() or "127.0.0.1")).hostname
-    if not host:
-        raise ValueError("own_mobile_proxy.server должен содержать адрес сервера ADB")
+    address = (server or "").strip() or "127.0.0.1"
+    try:
+        parsed = urlsplit("//" + address)
+        host, port = parsed.hostname, parsed.port
+    except ValueError as err:
+        raise ValueError("own_mobile_proxy.server должен быть host или host:port с портом от 1 до 65535") from err
+    if (not host or parsed.username is not None or parsed.path or parsed.query or parsed.fragment
+            or address.endswith(":") or any(char.isspace() for char in address)
+            or (port is not None and not 1 <= port <= 65535)):
+        raise ValueError("own_mobile_proxy.server должен быть host или host:port с портом от 1 до 65535")
     if ":" in host:
         host = f"[{host}]"
-    return f"{host}:{ports[0]}"
+    return f"{host}:{port if port is not None else ports[0]}"
 
 
 @contextmanager

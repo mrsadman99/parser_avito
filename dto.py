@@ -73,7 +73,7 @@ class OwnMobileProxyConfig:
     adb_serial: str = ""         # серийник для adb (пусто — adb без -s)
     login: str = ""
     password: str = ""
-    server: str = ""             # адрес сервера ADB для парсера и SPFA; пусто = 127.0.0.1
+    server: str = ""             # host или host:port прокси; без порта — adb_forward[0], пусто = localhost
     ssh: SshConfig = field(default_factory=SshConfig)
     transport: str = "ssh"  # все команды телефона: ssh или adb (root)
     adb_forward: List[int] = field(default_factory=lambda: [8888, 8888])

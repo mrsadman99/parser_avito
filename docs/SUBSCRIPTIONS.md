@@ -137,8 +137,9 @@ UID определяется по владельцу домашнего ката
 При transport=adb SSH-соединения не открываются. Сетевые интерфейсы, Bind,
 LogFile и Syslog не изменяются: используется готовый tinyproxy.conf в Termux.
 При SSH перед запуском выполняется scripts/fix_interfaces_via_ssh.sh
-и настраиваются LogFile/Syslog. server задаёт адрес сервера ADB с проброшенным
-TCP-портом adb_forward[0]; пустой server означает 127.0.0.1.
+и настраиваются LogFile/Syslog. server задаёт host или полный адрес host:port
+для подключения к HTTP-прокси. Порт из server имеет приоритет над adb_forward[0];
+без порта используется adb_forward[0], пустой server означает localhost.
 
 SSH требует настроенного Termux sshd и секции ssh. TCP-проброс всегда использует ADB,
 даже при transport=ssh: adb_forward=[порт сервера, порт tinyproxy].

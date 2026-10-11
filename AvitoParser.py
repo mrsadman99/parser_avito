@@ -578,8 +578,8 @@ def main(page: ft.Page):
     own_proxy_login = ft.TextField(label="Логин HTTP", value="", width=150, text_size=12, height=40)
     own_proxy_password = ft.TextField(label="Пароль HTTP", value="", password=True,
                                       can_reveal_password=True, width=150, text_size=12, height=40)
-    own_proxy_server = ft.TextField(label="Адрес сервера ADB", value="", width=220, text_size=12, height=40,
-                                    tooltip="Адрес сервера с проброшенным TCP-портом для парсера и SPFA. Пусто = 127.0.0.1")
+    own_proxy_server = ft.TextField(label="Адрес прокси (host или host:port)", value="", width=280, text_size=12, height=40,
+                                    tooltip="Полный адрес прокси для парсера и SPFA. Без порта используется TCP-порт ADB на сервере; пусто = localhost")
     ssh_host = ft.TextField(label="IP телефона (SSH)", value="", width=180, text_size=12, height=40)
     ssh_port = ft.TextField(label="Порт SSH", value="8022", width=120, text_size=12, height=40)
     ssh_user = ft.TextField(label="Пользователь SSH", value="", width=180, text_size=12, height=40)

@@ -35,10 +35,10 @@ class ForwardConfigTests(unittest.TestCase):
             path.write_bytes(tomli_w.dumps(raw).encode())
             config = load_avito_config(path)
         proxy = build_proxy(config)
-        self.assertEqual(proxy.get_httpx_proxy(), 'http://example.com:5556')
-        self.assertEqual(proxy.get_playwright_proxy()['server'], 'http://example.com:5556')
-        self.assertEqual(proxy.get_spfa_proxy_string(), 'example.com:5556')
-        self.assertEqual(mobile.proxy_address(config.own_mobile_proxy), 'example.com:5556')
+        self.assertEqual(proxy.get_httpx_proxy(), 'http://example.com:9999')
+        self.assertEqual(proxy.get_playwright_proxy()['server'], 'http://example.com:9999')
+        self.assertEqual(proxy.get_spfa_proxy_string(), 'example.com:9999')
+        self.assertEqual(mobile.proxy_address(config.own_mobile_proxy), 'example.com:9999')
         with patch.object(mobile, 'rotate_ip', return_value=True) as rotate:
             self.assertTrue(proxy.handle_block())
             self.assertEqual(rotate.call_args.kwargs['adb_forward'], [5556, 8888])
@@ -47,7 +47,32 @@ class ForwardConfigTests(unittest.TestCase):
         own = OwnMobileProxyConfig(use=True, ssh=SshConfig(host='phone'), adb_forward=[5556, 8888])
         self.assertEqual(mobile.proxy_address(own), '127.0.0.1:5556')
         self.assertEqual(build_proxy(AvitoConfig(own_mobile_proxy=own)).host, '127.0.0.1:5556')
-        self.assertEqual(forward.proxy_address('[::1]:7777', [5556, 8888]), '[::1]:5556')
+        self.assertEqual(forward.proxy_address('[::1]:7777', [5556, 8888]), '[::1]:7777')
+
+    def test_server_port_is_used_by_all_clients_and_does_not_change_adb_ports(self):
+        own = OwnMobileProxyConfig(use=True, server='90.189.153.8:5556',
+                                   adb_forward=[15556, 5556], login='user', password='secret')
+        proxy = build_proxy(AvitoConfig(own_mobile_proxy=own))
+        self.assertEqual(proxy.get_httpx_proxy(), 'http://user:secret@90.189.153.8:5556')
+        self.assertEqual(proxy.get_playwright_proxy(), {
+            'server': 'http://90.189.153.8:5556', 'username': 'user', 'password': 'secret'})
+        self.assertEqual(proxy.get_spfa_proxy_string(), 'user:secret@90.189.153.8:5556')
+        self.assertEqual(mobile.proxy_address(own), '90.189.153.8:5556')
+        self.assertEqual(proxy.adb_forward, [15556, 5556])
+        with patch.object(mobile, 'rotate_ip', return_value=True) as rotate:
+            self.assertTrue(proxy.handle_block())
+            self.assertEqual(rotate.call_args.kwargs['adb_forward'], [15556, 5556])
+
+    def test_host_only_uses_forward_port_and_explicit_ports_are_validated(self):
+        for host, expected in [('90.189.153.8', '90.189.153.8:15556'),
+                               ('proxy.example.com', 'proxy.example.com:15556'),
+                               ('[::1]', '[::1]:15556'), (' 127.0.0.1:5556 ', '127.0.0.1:5556')]:
+            with self.subTest(host=host):
+                self.assertEqual(forward.proxy_address(host, [15556, 5556]), expected)
+        for invalid in ('127.0.0.1:0', '127.0.0.1:65536', '127.0.0.1:abc', '127.0.0.1:',
+                        'http://127.0.0.1:5556', 'user@127.0.0.1:5556', '127.0.0.1/path'):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                forward.proxy_address(invalid, [15556, 5556])
 
 
 class ForwardLifecycleTests(unittest.TestCase):
