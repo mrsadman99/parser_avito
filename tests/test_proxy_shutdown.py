@@ -24,6 +24,8 @@ class RemoteStopTests(unittest.TestCase):
              patch.object(mobile.time, 'sleep'):
             self.assertTrue(mobile._stop_tinyproxy(Mock())[0])
         self.assertFalse(any('pkill -9' in call.args[1] for call in run.call_args_list))
+        self.assertIn("pkill -f '^/data/data/com\\.termux/files/usr/bin/tinyproxy([[:space:]]|$)'",
+                      run.call_args_list[0].args[1])
 
     def test_kill_waits_and_checks_result(self):
         responses = [(0, '', '')] + [(0, 'running', '')] * 20 + [
@@ -32,6 +34,8 @@ class RemoteStopTests(unittest.TestCase):
              patch.object(mobile.time, 'sleep'):
             self.assertTrue(mobile._stop_tinyproxy(Mock())[0])
         self.assertEqual(sum('pkill -9' in call.args[1] for call in run.call_args_list), 1)
+        kill_command = next(call.args[1] for call in run.call_args_list if 'pkill -9' in call.args[1])
+        self.assertIn("pkill -9 -f '^/data/data/com\\.termux/files/usr/bin/tinyproxy([[:space:]]|$)'", kill_command)
 
     def test_signal_and_status_errors_are_not_success(self):
         for responses in ([(2, '', 'denied')], [(0, '', ''), (2, '', 'pgrep failed')],

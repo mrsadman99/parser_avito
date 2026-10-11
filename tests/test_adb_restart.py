@@ -210,9 +210,9 @@ class AdbRestartTests(unittest.TestCase):
             edit_config.assert_not_called()
             self.assertEqual(run.call_count, 4)
             commands = [c.args[1] for c in run.call_args_list]
-            self.assertIn('pkill -x tinyproxy', commands[0])
+            self.assertIn("pkill -f '^/data/data/com\\.termux/files/usr/bin/tinyproxy([[:space:]]|$)'", commands[0])
             self.assertIn('nohup /data/data/com.termux/files/usr/bin/tinyproxy -d -c ', commands[2])
-            self.assertIn('pgrep -x tinyproxy', commands[3])
+            self.assertIn("pgrep -f '^/data/data/com\\.termux/files/usr/bin/tinyproxy([[:space:]]|$)'", commands[3])
             self.assertNotIn('sed ', ''.join(commands))
             self.assertNotIn('base64', ''.join(commands))
 

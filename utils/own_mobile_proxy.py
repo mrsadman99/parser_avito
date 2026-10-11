@@ -5,6 +5,7 @@ ADB выполняет команды Termux через run-as com.termux. SSH �
 TCP-трафик всегда проходит через ADB, независимо от транспорта управления.
 """
 import base64
+import re
 import shlex
 import subprocess
 import sys
@@ -32,6 +33,8 @@ DEFAULT_CONFIG = "config.toml"
 TERMUX_PREFIX = "/data/data/com.termux/files/usr"
 TERMUX_HOME = "/data/data/com.termux/files/home"
 TERMUX_RUN_AS_HOME = "/data/user/0/com.termux/files/home"
+TINYPROXY_BIN = f"{TERMUX_PREFIX}/bin/tinyproxy"
+TINYPROXY_PROCESS_PATTERN = "^" + re.escape(TINYPROXY_BIN) + "([[:space:]]|$)"
 TINYPROXY_CONF = f"{TERMUX_PREFIX}/etc/tinyproxy/tinyproxy.conf"
 DEFAULT_DEVICE_LOG = f"{TERMUX_HOME}/tinyproxy.log"
 TAIL_PID_PREFIX = f"{TERMUX_HOME}/.parser_avito_tinyproxy_tail."
@@ -104,25 +107,25 @@ def _remote_start_command(device_log: str) -> str:
     """Команда на телефоне: запустить tinyproxy через nohup."""
     return (
         REMOTE_ENV
-        + f"nohup {TERMUX_PREFIX}/bin/tinyproxy -d -c {TINYPROXY_CONF} "
+        + f"nohup {TINYPROXY_BIN} -d -c {TINYPROXY_CONF} "
         + f">> {device_log} 2>&1 < /dev/null & "
         + 'echo "started pid $!"'
     )
 
 
 def _remote_stop_command() -> str:
-    """Остановка tinyproxy на телефоне по точному имени процесса."""
-    return REMOTE_ENV + "pkill -x tinyproxy"
+    """SIGTERM для tinyproxy по полному пути в командной строке."""
+    return REMOTE_ENV + "pkill -f " + shlex.quote(TINYPROXY_PROCESS_PATTERN)
 
 
 def _remote_kill_command() -> str:
-    """Принудительная остановка: pkill -9 -x tinyproxy."""
-    return REMOTE_ENV + "pkill -9 -x tinyproxy"
+    """SIGKILL для tinyproxy по полному пути в командной строке."""
+    return REMOTE_ENV + "pkill -9 -f " + shlex.quote(TINYPROXY_PROCESS_PATTERN)
 
 
 def _remote_status_command() -> str:
-    """Команда на телефоне: проверить, запущен ли tinyproxy."""
-    return (REMOTE_ENV + "pgrep -x tinyproxy >/dev/null 2>&1; code=$?; "
+    """Проверяет tinyproxy по пути исполняемого файла в начале командной строки."""
+    return (REMOTE_ENV + f"pgrep -f {shlex.quote(TINYPROXY_PROCESS_PATTERN)} >/dev/null 2>&1; code=$?; "
             'case "$code" in 0) echo running;; 1) echo stopped;; *) exit "$code";; esac')
 
 
@@ -445,7 +448,7 @@ def stop_proxy(config, force: bool = False) -> int:
     if not ok:
         print(f"  ⚠️ Не удалось остановить tinyproxy: {error}", file=sys.stderr)
         return 1
-    print("    tinyproxy остановлен (pkill -x tinyproxy)")
+    print(f"    tinyproxy остановлен (pkill -f по пути {TINYPROXY_BIN})")
     return int(cleanup_error)
 
 
