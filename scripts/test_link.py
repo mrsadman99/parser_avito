@@ -12,8 +12,10 @@
     python scripts/test_link.py "https://www.avito.ru/..." --config config.toml
     python scripts/test_link.py "https://www.avito.ru/..." --no-proxy      # без tinyproxy
     python scripts/test_link.py "https://www.avito.ru/..." --no-restart    # не перезапускать tinyproxy
+    python scripts/test_link.py "https://www.avito.ru/..." --mobile-proxy --no-restart --save-html ad.html
 """
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -43,6 +45,7 @@ def _get_cookies(provider):
 
 
 def _make_request(proxy, provider, url, timeout):
+    cookies = _get_cookies(provider)
     fingerprint = provider.get_fingerprint() if provider else None
     fingerprint = fingerprint if isinstance(fingerprint, dict) else {}
     headers = dict(fingerprint.get("headers") or {})
@@ -52,21 +55,19 @@ def _make_request(proxy, provider, url, timeout):
     if user_agent and "user-agent" not in headers:
         headers["user-agent"] = user_agent
 
-    session = cffi_requests.Session(impersonate=impersonate)
-    if proxy is not None:
-        proxy_url = proxy.get_httpx_proxy()
-        if proxy_url:
-            session.proxies = {"http": proxy_url, "https": proxy_url}
+    with cffi_requests.Session(impersonate=impersonate) as session:
+        if proxy is not None:
+            proxy_url = proxy.get_httpx_proxy()
+            if proxy_url:
+                session.proxies = {"http": proxy_url, "https": proxy_url}
 
-    cookies = _get_cookies(provider)
-    if cookies:
-        session.cookies.update(cookies)
-    if headers:
-        session.headers.update(headers)
+        if cookies:
+            session.cookies.update(cookies)
+        if headers:
+            session.headers.update(headers)
 
-    print(f"[*] GET {url} (impersonate={impersonate}, cookies={len(cookies)})")
-    response = session.get(url, timeout=timeout)
-    return response
+        print(f"[*] GET {url} (impersonate={impersonate}, cookies={len(cookies)})")
+        return session.get(url, timeout=timeout)
 
 
 def main(argv=None):
@@ -80,9 +81,15 @@ def main(argv=None):
     parser.add_argument("--no-restart", action="store_true",
                         help="Не перезапускать tinyproxy, только убедиться, что он работает")
     parser.add_argument("--timeout", type=int, default=30, help="Таймаут запроса, сек")
+    parser.add_argument("--mobile-proxy", action="store_true",
+                        help="Требовать свой или внешний мобильный прокси в config.toml")
+    parser.add_argument("--save-html", type=Path, help="Сохранить полный HTML ответа, включая страницу блокировки")
+    parser.add_argument("--save-json", type=Path, help="Сохранить извлечённые поля объявления в JSON")
     args = parser.parse_args(argv)
 
     config = load_avito_config(args.config)
+    if args.mobile_proxy and not (config.own_mobile_proxy.use or config.external_mobile_proxy.proxy_string):
+        parser.error("Для --mobile-proxy включите own_mobile_proxy.use или задайте external_mobile_proxy.proxy_string")
 
     # 1. tinyproxy (свой мобильный прокси)
     if not args.no_proxy and getattr(config.own_mobile_proxy, "use", False):
@@ -114,8 +121,16 @@ def main(argv=None):
     print(f"Content-Type: {response.headers.get('content-type', '')}")
     body = response.text or ""
     print(f"Длина тела: {len(body)} симв.")
+    if args.save_html:
+        args.save_html.parent.mkdir(parents=True, exist_ok=True)
+        args.save_html.write_text(body, encoding="utf-8")
+        print(f"Полный HTML: {args.save_html.resolve()}")
 
     parsed = parse_ad_html(body) if body else {}
+    if args.save_json:
+        args.save_json.parent.mkdir(parents=True, exist_ok=True)
+        args.save_json.write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"Поля объявления: {args.save_json.resolve()}")
     if parsed.get("available"):
         print("\n--- Распознано как объявление ---")
         for key in ("id", "title", "price", "city", "address", "has_delivery",
