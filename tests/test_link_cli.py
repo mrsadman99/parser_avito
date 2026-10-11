@@ -12,7 +12,7 @@ from curl_cffi import requests
 from dto import AvitoConfig, OwnMobileProxyConfig
 from parser.http.client import HttpClient
 from parser.http.camoufox_client import CamoufoxClient
-from scripts import test_link
+from scripts import retrieve_ad_links
 
 
 class LinkCliTests(unittest.TestCase):
@@ -33,8 +33,8 @@ class LinkCliTests(unittest.TestCase):
         self.provider.get_fingerprint.return_value = {'impersonate': 'chrome', 'headers': {}}
         self.provider.get_user_agent.return_value = 'test-agent'
         self.provider.get.return_value = {'cookie': 'value'}
-        patch.object(test_link, 'load_avito_config', return_value=self.config).start()
-        self.cookie_factory = patch.object(test_link, 'build_cookies_provider', return_value=self.provider).start()
+        patch.object(retrieve_ad_links, 'load_avito_config', return_value=self.config).start()
+        self.cookie_factory = patch.object(retrieve_ad_links, 'build_cookies_provider', return_value=self.provider).start()
         patch.object(HttpClient, 'get_current_ip', return_value=None).start()
         patch.object(CamoufoxClient, 'get_current_ip', return_value=None).start()
         self.addCleanup(patch.stopall)
@@ -45,7 +45,7 @@ class LinkCliTests(unittest.TestCase):
 
     def run_cli(self, *extra):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            return test_link.main([self.url, '--mobile-proxy', '--no-proxy',
+            return retrieve_ad_links.main([self.url, '--mobile-proxy', '--no-proxy',
                                    '--save-html', str(self.html), '--save-json', str(self.fields), *extra])
 
     def test_failed_rotation_stops_at_threshold_and_saves_last_blocked_html(self):
@@ -125,10 +125,10 @@ class LinkCliTests(unittest.TestCase):
         self.assertEqual(self.html.read_text(), '<html>Browser blocked</html>')
 
     def test_proxy_startup_failure_does_not_send_request(self):
-        with patch.object(test_link, 'start_proxy', return_value=1), \
-             patch.object(test_link, '_build_request_client') as build, \
+        with patch.object(retrieve_ad_links, 'start_proxy', return_value=1), \
+             patch.object(retrieve_ad_links, '_build_request_client') as build, \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(test_link.main([self.url]), 1)
+            self.assertEqual(retrieve_ad_links.main([self.url]), 1)
             build.assert_not_called()
 
 

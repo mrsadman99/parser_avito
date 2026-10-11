@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
 
-from scripts.test_link import collect_links, extract_item_links
+from scripts.retrieve_ad_links import collect_links, extract_item_links
 
 
 class CatalogLinksTests(unittest.TestCase):
@@ -29,8 +29,8 @@ class CatalogLinksTests(unittest.TestCase):
         client = Mock()
         client.request.side_effect = [Mock(json=Mock(return_value={'items': items}))
                                       for items in ([{'id': 1}], [{'id': 1}, {'id': 2}], [])]
-        with patch('scripts.test_link.AvitoUrlConverter') as converter, \
-             patch('scripts.test_link.time.sleep'):
+        with patch('scripts.retrieve_ad_links.AvitoUrlConverter') as converter, \
+             patch('scripts.retrieve_ad_links.time.sleep'):
             converter.return_value.convert.return_value = 'https://m.avito.ru/api/9/items?q=cpu&p=9'
             links = collect_links(client, 'https://www.avito.ru/search', 5,
                                   SimpleNamespace(min_delay=0, max_delay=0))
@@ -43,7 +43,7 @@ class CatalogLinksTests(unittest.TestCase):
     def test_request_failure_propagates_without_another_retry_loop(self):
         client = Mock()
         client.request.side_effect = RuntimeError('exhausted')
-        with patch('scripts.test_link.AvitoUrlConverter') as converter:
+        with patch('scripts.retrieve_ad_links.AvitoUrlConverter') as converter:
             converter.return_value.convert.return_value = 'https://m.avito.ru/api/9/items'
             with self.assertRaisesRegex(RuntimeError, 'exhausted'):
                 collect_links(client, 'https://www.avito.ru/search', 5, SimpleNamespace())

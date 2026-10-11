@@ -9,12 +9,12 @@
      При camoufox.use=true использует Camoufox, иначе curl_cffi и провайдер cookies.
 
 Запуск:
-    python scripts/test_link.py "https://www.avito.ru/..."
-    python scripts/test_link.py "https://www.avito.ru/..." --config config.toml
-    python scripts/test_link.py "https://www.avito.ru/..." --no-proxy      # без tinyproxy
-    python scripts/test_link.py "https://www.avito.ru/..." --no-restart    # не перезапускать tinyproxy
-    python scripts/test_link.py "https://www.avito.ru/..." --mobile-proxy --no-restart --save-html ad.html
-    python scripts/test_link.py "https://www.avito.ru/...?..." --extract-links --pages 3 --save-links links.txt --save-json links.json
+    python scripts/retrieve_ad_links.py "https://www.avito.ru/..."
+    python scripts/retrieve_ad_links.py "https://www.avito.ru/..." --config config.toml
+    python scripts/retrieve_ad_links.py "https://www.avito.ru/..." --no-proxy      # без tinyproxy
+    python scripts/retrieve_ad_links.py "https://www.avito.ru/..." --no-restart    # не перезапускать tinyproxy
+    python scripts/retrieve_ad_links.py "https://www.avito.ru/..." --mobile-proxy --no-restart --save-html ad.html
+    python scripts/retrieve_ad_links.py "https://www.avito.ru/...?..." --extract-links --pages 3 --save-links links.txt --save-json links.json
 """
 import argparse
 import json

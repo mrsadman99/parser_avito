@@ -128,7 +128,7 @@ block_threshold = 3
 Проверка одной ссылки использует те же клиенты и параметры, что и парсер:
 
 ```sh
-python scripts/test_link.py "https://www.avito.ru/..." --mobile-proxy --no-restart --save-html ad-mobile.html --save-json ad-mobile.json
+python scripts/retrieve_ad_links.py "https://www.avito.ru/..." --mobile-proxy --no-restart --save-html ad-mobile.html --save-json ad-mobile.json
 ```
 
 При `camoufox.use = true` запрос выполняет Camoufox, иначе HTTP-клиент с
@@ -490,7 +490,7 @@ admin_password = "ваш-пароль"
 ## Извлечение ссылок карточек из выдачи
 
 ```bash
-python3 scripts/test_link.py 'https://www.avito.ru/novosibirsk/tovary_dlya_kompyutera/komplektuyuschie/protsessory/amd-ASgBAgICA0TGB~pm7gniZ~LNE4q85hE?cd=1&q=ryzen+5+5500x3d' \
+python3 scripts/retrieve_ad_links.py 'https://www.avito.ru/novosibirsk/tovary_dlya_kompyutera/komplektuyuschie/protsessory/amd-ASgBAgICA0TGB~pm7gniZ~LNE4q85hE?cd=1&q=ryzen+5+5500x3d' \
   --extract-links --mobile-proxy --no-restart \
   --pages 1 --save-links links.txt --save-json links.json
 ```
@@ -509,3 +509,34 @@ Camoufox с его браузерными cookies, иначе HTTP-клиент 
 Если запрос или разбор каталога завершился ошибкой, код выхода — 1; итоговые файлы
 создаются только после успешного сбора всех запрошенных страниц (или пустой страницы).
 Ранее созданные файлы при ошибке не обновляются.
+
+## Проверка мобильной API-карточки
+
+Передайте `api_url` из `retrieve_ad_links.py`:
+
+```bash
+python3 scripts/test_ad_link.py \
+  'https://m.avito.ru/api/1/card/items/8258446852' \
+  --mobile-proxy --no-restart \
+  --save-json ad.json --save-response ad-response.txt
+```
+
+Скрипт выводит и сохраняет полный JSON, включая поля, которые основной парсер
+пока не использует. `--save-response` сохраняет тело последнего ответа и при
+ошибке (например, HTML блокировки). Код выхода 1 означает ошибку запроса, разбора
+JSON или явную ошибку API; при успехе — 0. Старый JSON-файл не обновляется,
+если новый ответ не удалось получить или разобрать.
+
+Используется та же фабрика клиента, что у `retrieve_ad_links.py`: прокси,
+провайдер cookies, `timeout`, `max_count_of_retry`, `retry_delay`, `block_threshold`
+и параметры повторов смены IP берутся из `config.toml`. Дополнительного цикла
+повторов в скрипте нет. При `camoufox.use=true` используется браузерный клиент
+и его cookies. Для HTTP-клиента задаются Accept JSON и мобильный Referer;
+User-Agent и TLS fingerprint не подменяются жёстко заданным Chrome/Android.
+
+Без `--no-restart` собственный tinyproxy перезапускается перед запросом;
+с этим флагом проверяется его работа (при необходимости запускается).
+`--no-proxy` пропускает только управление tinyproxy, но сохраняет настроенный
+прокси для запросов. `--config` выбирает конфигурацию, `--timeout` позволяет
+явно переопределить её таймаут. Скрипт не отправляет уведомления и не записывает
+объявление в базу парсера.
