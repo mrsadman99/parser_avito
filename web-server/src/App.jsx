@@ -422,19 +422,33 @@ export default function App() {
     }
   }
 
-  async function openAds(link) {
+  useEffect(() => {
+    if (view !== 'ads' || !selectedLink || !token) return
+    let cancelled = false
+    let timer
+    const query = selectedLink.id != null
+      ? `link_id=${selectedLink.id}`
+      : `url=${encodeURIComponent(selectedLink.url)}`
+    async function refreshAds() {
+      try {
+        const rows = await api(`/api/ads?${query}`, { token })
+        if (!cancelled) setAds(rows)
+      } catch (err) {
+        if (!cancelled) setError(err.message)
+      } finally {
+        if (!cancelled) timer = setTimeout(refreshAds, 10000)
+      }
+    }
+    refreshAds()
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [view, selectedLink, token])
+
+  function openAds(link) {
     setError('')
+    setAds([])
     setSelectedLink(link)
     setView('ads')
     setAdsFilters(ADS_FILTERS_EMPTY)
-    try {
-      const query = link.id != null
-        ? `link_id=${link.id}`
-        : `url=${encodeURIComponent(link.url)}`
-      setAds(await api(`/api/ads?${query}`, { token }))
-    } catch (err) {
-      setError(err.message)
-    }
   }
 
   function backToLinks() {
@@ -547,6 +561,7 @@ export default function App() {
                     <th className="sortable" onClick={() => toggleSort('city')}>Расположение{arrow('city')}</th>
                     <th>Ссылка</th>
                     <th className="sortable" onClick={() => toggleSort('scanned_at')}>Время парсинга{arrow('scanned_at')}</th>
+                    <th>Обновлено</th>
                     <th className="sortable" onClick={() => toggleSort('sort_time')}>Публикация{arrow('sort_time')}</th>
                     <th className="sortable" onClick={() => toggleSort('seller_rating')}>Рейтинг{arrow('seller_rating')}</th>
                     <th className="sortable" onClick={() => toggleSort('seller_reviews')}>Оценок{arrow('seller_reviews')}</th>
@@ -556,12 +571,13 @@ export default function App() {
                   {sortedAds.map((ad) => (
                     <tr key={`${ad.source_key}:${ad.id}:${ad.price}`}>
                       <td>{ad.photo_url ? <img className="ad-thumb" src={ad.photo_url} alt="" /> : ''}</td>
-                      <td>{ad.title}</td>
+                      <td>{ad.title}{Boolean(ad.is_reserved) && <span className="reserved-badge">Забронировано</span>}</td>
                       <td>{ad.price}</td>
                       <td>{ad.has_delivery ? 'Да' : '—'}</td>
                       <td>{ad.city || '—'}</td>
                       <td><a href={ad.ad_url} target="_blank" rel="noreferrer">открыть</a></td>
                       <td>{fmtScan(ad.scanned_at)}</td>
+                      <td>{ad.refreshed_at ? fmtScan(ad.refreshed_at) : '—'}</td>
                       <td>{fmtMs(ad.sort_time)}</td>
                       <td>{ad.seller_rating ?? ''}</td>
                       <td>{ad.seller_reviews ?? ''}</td>

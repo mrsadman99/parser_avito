@@ -440,3 +440,14 @@ header {
 .tag-input .tag-field::placeholder {
   color: #6b7482;
 }
+
+.reserved-badge {
+  display: inline-block;
+  margin: 0.3rem 0 0.3rem 0.5rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.3rem;
+  background: #fff1c2;
+  color: #674500;
+  font-size: 0.8rem;
+  font-weight: 600;
+}

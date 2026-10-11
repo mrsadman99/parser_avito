@@ -1,0 +1,225 @@
+"""Фоновые обновления: очередь, индивидуальные сроки и сохранность базы при ошибках."""
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+from db_service import SQLiteDBHandler
+from dto import AvitoConfig
+from load_config import load_avito_config
+from models import Item, PriceDetailed
+from parser.cancellation import Cancellation, ParseCancelled
+from parser.mobile_detail import parse_mobile_detail
+from parser.request_queue import RequestThrottle
+from parser.proxies.proxy import ProxyRotationError
+from parser.http.client import HttpClient
+from parser_cls import AvitoParse
+
+
+def item(i=1):
+    return Item(id=i, title='CPU', description='Old', isReserved=True,
+                urlPath=f'/cpu_{i}', priceDetailed=PriceDetailed(
+                    enabled=True, fullString='500', hasValue=True, postfix='', string='500',
+                    stringWithoutDiscount=None, title={}, titleDative='', value=500,
+                    wasLowered=False, exponent=''))
+
+
+def payload(i=1):
+    return {'success': {'mobile': {
+        'id': i, 'title': 'New title', 'description': 'Full description',
+        'price': {'value': '28\xa0900'}, 'time': 1700000000,
+        'seo': {'canonicalUrl': f'https://www.avito.ru/cpu_{i}'},
+        'sellerAddressInfo': {'fullAddress': {'locality': 'Новосибирск'}, 'isWithDelivery': True},
+        'seller': {'domain': 'seller-slug', 'userHash': 'different-id',
+                   'rating': {'scoreFloat': 5, 'text': '58 отзывов'}},
+        'images': [{'10x10': 'small', '100x100': 'large'}],
+        'coords': {'lat': 55, 'lng': 82}, 'isReserved': False,
+    }}}
+
+
+class QueueTests(unittest.TestCase):
+    def test_background_waits_for_entire_foreground_scan(self):
+        queue = RequestThrottle(0, 0)
+        done = threading.Event()
+        with queue.foreground():
+            thread = threading.Thread(target=lambda: queue.run(done.set, background=True))
+            thread.start()
+            self.assertFalse(done.wait(.12))
+            self.assertEqual(queue.run(lambda: 'page'), 'page')
+            self.assertFalse(done.is_set())
+        thread.join(1)
+        self.assertTrue(done.is_set())
+
+    def test_foreground_overtakes_queued_background_and_no_overlap(self):
+        queue = RequestThrottle(0, 0)
+        order = []
+        queue._lock.acquire()
+        threads = []
+        try:
+            for name, bg in [('refresh', True), ('page1', False), ('page2', False)]:
+                thread = threading.Thread(target=lambda n=name, b=bg: queue.run(order.append, n, background=b))
+                thread.start()
+                threads.append(thread)
+                deadline = time.monotonic() + 1
+                while len(queue._queue) < len(threads) and time.monotonic() < deadline:
+                    time.sleep(.005)
+        finally:
+            queue._lock.release()
+        for thread in threads:
+            thread.join(1)
+        self.assertEqual(order, ['page1', 'page2', 'refresh'])
+
+    def test_cancelled_background_leaves_queue(self):
+        queue = RequestThrottle(0, 0)
+        with self.assertRaises(ParseCancelled):
+            queue.run(Mock(), background=True, cancellation=Cancellation(lambda: True))
+        self.assertEqual(queue._queue, [])
+        self.assertEqual(queue.run(lambda: 1), 1)
+
+
+class RefreshTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.previous = SQLiteDBHandler._instance
+        SQLiteDBHandler._instance = None
+        self.db = SQLiteDBHandler(str(Path(self.tmp.name) / 'ads.db'))
+        self.addCleanup(setattr, SQLiteDBHandler, '_instance', self.previous)
+        with patch('db_service.time.time', return_value=100):
+            self.db.add_record_from_page([item()], 'search', 'one', ['recipient'])
+        self.parser = AvitoParse.__new__(AvitoParse)
+        self.parser.db_handler = self.db
+        self.parser.http = Mock()
+        self.parser.camoufox = None
+        self.parser.good_request_count = 0
+        self.parser.bad_request_count = 0
+        self.parser.config = AvitoConfig(ad_refresh_interval=60)
+        self.parser._shutdown = threading.Event()
+        self.parser.stop_event = None
+        self.parser._fatal_error = None
+        self.parser.throttle = RequestThrottle(0, 0)
+
+    def test_each_ad_has_persistent_deadline_not_reset_by_catalog(self):
+        with patch('db_service.time.time', return_value=130):
+            self.db.add_record_from_page([item(2)], 'search', 'one')
+            self.db.add_record_from_page([item()], 'other-search', 'two')
+        self.assertIsNone(self.db.next_ad_for_refresh(60, now=159))
+        self.assertEqual(self.db.next_ad_for_refresh(60, now=160), 1)
+        self.db.finish_ad_refresh(1, now=160)
+        self.assertIsNone(self.db.next_ad_for_refresh(60, now=189))
+        self.assertEqual(self.db.next_ad_for_refresh(60, now=190), 2)
+        SQLiteDBHandler._instance = None
+        reopened = SQLiteDBHandler(self.db.db_name)
+        self.assertEqual(reopened.next_ad_for_refresh(60, now=190), 2)
+
+    def test_success_updates_all_subscriptions_without_changing_scan_time(self):
+        self.db.add_record_from_page([item()], 'search', 'two')
+        old_scan = self.db.list_ads('search')[0]['scanned_at']
+        self.parser.http.request.return_value = Mock(status_code=200, json=lambda: payload())
+        self.parser._refresh_ad(1, Cancellation())
+        rows = self.db.list_ads('search')
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertEqual(row['price'], 28900)
+            self.assertEqual(row['description'], 'Full description')
+            self.assertEqual(row['seller_id'], 'seller-slug')
+            self.assertEqual(row['seller_reviews'], 58)
+            self.assertEqual(row['photo_url'], 'large')
+            self.assertEqual(row['is_reserved'], 0)
+            self.assertTrue(row['refreshed_at'])
+            self.assertEqual(row['scanned_at'], old_scan)
+        self.parser.http.request.assert_called_once()
+
+    def test_unknown_reservation_preserves_previous_status(self):
+        data = payload()
+        mobile = data['success']['mobile']
+        del mobile['isReserved']
+        mobile['uxFeedbackConfig'] = {'attributes': {'boolAttrs': {'is_reserved_or_out_of_stock': True}}}
+        fields = parse_mobile_detail(data, 1)['fields']
+        self.assertNotIn('is_reserved', fields)
+        self.db.update_ad(1, fields)
+        self.assertEqual(self.db.list_ads('search')[0]['is_reserved'], 1)
+        mobile['uxFeedbackConfig']['attributes']['boolAttrs']['is_reserved_or_out_of_stock'] = False
+        self.assertEqual(parse_mobile_detail(data, 1)['fields']['is_reserved'], 0)
+
+    def test_confirmed_removal_deletes_all_subscriptions_and_pending_notifications(self):
+        self.db.add_record_from_page([item()], 'other', 'two')
+        self.parser.http.request.return_value = Mock(status_code=404, json=lambda: {'error': {'code': 'item_not_found'}})
+        self.parser._refresh_ad(1, Cancellation())
+        self.assertEqual(self.db.list_ads('search'), [])
+        self.assertEqual(self.db.list_ads('other'), [])
+        self.assertEqual(self.db.pending_notifications(['recipient']), [])
+        self.assertIsNone(self.db.next_ad_for_refresh(1, now=time.time()))
+
+    def test_bad_json_generic_404_wrong_id_and_network_error_preserve_ad(self):
+        for response in [Mock(status_code=404, json=lambda: {}),
+                         Mock(status_code=200, json=Mock(side_effect=ValueError('HTML'))),
+                         Mock(status_code=200, json=lambda: payload(999))]:
+            self.parser.http.request.return_value = response
+            with self.assertRaises(ValueError):
+                self.parser._refresh_ad(1, Cancellation())
+            self.assertEqual(self.db.list_ads('search')[0]['price'], 500)
+        self.parser.http.request.side_effect = RuntimeError('attempts exhausted')
+        with patch('db_service.time.time', return_value=200):
+            with self.assertRaises(RuntimeError):
+                self.parser._refresh_ad(1, Cancellation())
+        self.assertIsNone(self.db.next_ad_for_refresh(60, now=259))
+        self.assertEqual(self.db.next_ad_for_refresh(60, now=260), 1)
+
+    def test_rotation_failure_stops_parser(self):
+        failure = ProxyRotationError('failed')
+        self.parser.http.request.side_effect = failure
+        self.parser._refresh_cycle()
+        self.assertIs(self.parser._fatal_error, failure)
+        self.assertTrue(self.parser._shutdown.is_set())
+        self.assertEqual(len(self.db.list_ads('search')), 1)
+
+    def test_refresh_uses_shared_http_block_recovery_and_attempt_budget(self):
+        proxy = Mock(get_httpx_proxy=Mock(return_value=None), rotate_with_retries=Mock(return_value=True))
+        session = Mock()
+        session.request.side_effect = [Mock(status_code=439), Mock(status_code=439),
+                                       Mock(status_code=200, json=lambda: payload())]
+        with patch('parser.http.client.requests.Session', return_value=session), \
+             patch.object(HttpClient, 'get_current_ip', return_value=None):
+            client = HttpClient(proxy, max_retries=3, block_threshold=2, retry_delay=0)
+            self.parser.http = client
+            try:
+                self.parser._refresh_ad(1, Cancellation())
+            finally:
+                client.close()
+        self.assertEqual(session.request.call_count, 3)
+        proxy.rotate_with_retries.assert_called_once()
+        self.assertEqual(self.db.list_ads('search')[0]['price'], 28900)
+
+    def test_confirmed_404_uses_one_http_attempt(self):
+        proxy = Mock(get_httpx_proxy=Mock(return_value=None))
+        session = Mock()
+        session.request.return_value = Mock(status_code=404, json=lambda: {'error': {'code': 'item_deleted'}})
+        with patch('parser.http.client.requests.Session', return_value=session), \
+             patch.object(HttpClient, 'get_current_ip', return_value=None):
+            client = HttpClient(proxy, retry_delay=0)
+            self.parser.http = client
+            try:
+                self.parser._refresh_ad(1, Cancellation())
+            finally:
+                client.close()
+        session.request.assert_called_once()
+        proxy.rotate_with_retries.assert_not_called()
+        self.assertEqual(self.db.list_ads('search'), [])
+
+    def test_catalog_updates_reservation_even_for_filtered_known_ads(self):
+        ad = item()
+        ad.isReserved = False
+        self.db.update_catalog_status([ad])
+        self.assertEqual(self.db.list_ads('search')[0]['is_reserved'], 0)
+
+    def test_config_interval_loaded_and_validated(self):
+        path = Path(self.tmp.name) / 'config.toml'
+        path.write_text('[avito]\nad_refresh_interval = 120\n')
+        self.assertEqual(load_avito_config(str(path)).ad_refresh_interval, 120)
+        for value in (-1, True, float('inf'), '60'):
+            with self.assertRaises(ValueError):
+                AvitoConfig(ad_refresh_interval=value)
+        self.assertEqual(AvitoConfig(ad_refresh_interval=0).ad_refresh_interval, 0)

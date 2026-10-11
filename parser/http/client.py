@@ -113,7 +113,8 @@ class HttpClient:
                 continue
         return None
 
-    def request(self, method: str, url: str, *, cancellation: Cancellation | None = None, **kwargs):
+    def request(self, method: str, url: str, *, cancellation: Cancellation | None = None,
+                accepted_statuses=(), **kwargs):
         cancellation = cancellation or Cancellation()
         cancellation.checkpoint()
         self.last_response = None
@@ -178,6 +179,8 @@ class HttpClient:
                     continue
 
                 self._block_attempts = 0
+                if response.status_code in accepted_statuses:
+                    return response
                 response.raise_for_status()
                 return response
 

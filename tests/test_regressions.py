@@ -119,6 +119,7 @@ class RegressionTests(unittest.TestCase):
         parser.stop_event = None
         parser._shutdown = threading.Event()
         parser._fatal_error = None
+        parser.throttle = self.parser_module.RequestThrottle(0, 0)
         return parser
 
     def scan(self, parser, key, config=None, ads=None, url=None):

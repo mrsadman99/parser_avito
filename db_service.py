@@ -1,4 +1,5 @@
 import sqlite3
+import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +26,14 @@ _MIGRATION_COLUMNS = {
     "has_delivery": "INTEGER",
     "city": "TEXT",
     "source_key": "TEXT NOT NULL DEFAULT ''",
+    "is_reserved": "INTEGER",
+    "refreshed_at": "TEXT",
+    "address": "TEXT",
+    "seller_id": "TEXT",
+    "images_json": "TEXT",
+    "coords_json": "TEXT",
+    "category_id": "INTEGER",
+    "has_video": "INTEGER",
 }
 
 
@@ -103,6 +112,14 @@ class SQLiteDBHandler:
                     ON viewed(source_key, id, price)
                 """)
             cursor.execute("CREATE INDEX IF NOT EXISTS viewed_source_url ON viewed(source_url)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS viewed_id ON viewed(id)")
+            cursor.execute("""CREATE TABLE IF NOT EXISTS ad_refresh_state (
+                ad_id INTEGER PRIMARY KEY, last_attempt REAL NOT NULL
+            )""")
+            cursor.execute("CREATE INDEX IF NOT EXISTS ad_refresh_due ON ad_refresh_state(last_attempt)")
+            cursor.execute("""INSERT OR IGNORE INTO ad_refresh_state(ad_id, last_attempt)
+                SELECT id, COALESCE(MIN(CAST(strftime('%s', scanned_at) AS REAL)), ?)
+                FROM viewed WHERE id IS NOT NULL GROUP BY id""", (time.time(),))
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS notification_outbox (
                     id INTEGER PRIMARY KEY,
@@ -144,6 +161,9 @@ class SQLiteDBHandler:
                     _ad_desc(ad),
                 ),
             )
+            cursor.execute("INSERT OR IGNORE INTO ad_refresh_state(ad_id, last_attempt) VALUES (?, ?)",
+                           (ad.id, time.time()))
+            self._write_catalog_status(cursor, [ad])
             conn.commit()
 
     def add_record_from_page(self, ads: list[Item], source_url: str = None,
@@ -189,7 +209,46 @@ class SQLiteDBHandler:
                 (source_key, ad.id, ad.priceDetailed.value, recipient, ad.model_dump_json())
                 for ad in ads for recipient in recipients
             ])
+            cursor.executemany("""INSERT OR IGNORE INTO ad_refresh_state(ad_id, last_attempt)
+                VALUES (?, ?)""", [(ad.id, time.time()) for ad in ads])
+            # Статус из каталога актуален и для уже известных объявлений.
+            self._write_catalog_status(cursor, ads)
             conn.commit()
+
+    @staticmethod
+    def _write_catalog_status(cursor, ads):
+        for ad in ads:
+            fields = {
+                'is_reserved': int(ad.isReserved) if ad.isReserved is not None else None,
+                'address': ad.geo.formattedAddress if ad.geo else None,
+                'seller_id': ad.sellerId,
+                'category_id': ad.categoryId if isinstance(ad.categoryId, int) else None,
+                'has_video': int(ad.hasVideo) if ad.hasVideo is not None else None,
+                'coords_json': json.dumps(ad.coords, ensure_ascii=False) if ad.coords else None,
+                'images_json': json.dumps([image.model_dump(mode='json') for image in ad.images],
+                                          ensure_ascii=False) if ad.images else None,
+            }
+            fields = {k: v for k, v in fields.items() if v is not None}
+            if fields:
+                assignments = ', '.join(f'{k} = ?' for k in fields)
+                cursor.execute(f"UPDATE viewed SET {assignments} WHERE id = ?", [*fields.values(), ad.id])
+
+    def update_catalog_status(self, ads):
+        with sqlite3.connect(self.db_name) as conn:
+            self._write_catalog_status(conn.cursor(), ads)
+
+    def next_ad_for_refresh(self, interval, now=None):
+        now = time.time() if now is None else now
+        with sqlite3.connect(self.db_name) as conn:
+            row = conn.execute("""SELECT ad_id FROM ad_refresh_state
+                WHERE last_attempt <= ? AND EXISTS (SELECT 1 FROM viewed WHERE id = ad_id)
+                ORDER BY last_attempt, ad_id LIMIT 1""", (now - interval,)).fetchone()
+            return row[0] if row else None
+
+    def finish_ad_refresh(self, ad_id, now=None):
+        with sqlite3.connect(self.db_name) as conn:
+            conn.execute("UPDATE ad_refresh_state SET last_attempt = ? WHERE ad_id = ?",
+                         (time.time() if now is None else now, ad_id))
 
     def list_ads(self, source_url: str, source_keys: list[str] | None = None) -> list[dict]:
         """Запарсенные объявления по исходной ссылке."""
@@ -249,6 +308,8 @@ class SQLiteDBHandler:
         "price", "scanned_at", "description", "source_url", "title", "ad_url",
         "sort_time", "seller_rating", "seller_reviews", "photo_url",
         "has_delivery", "city",
+        "is_reserved", "refreshed_at", "address", "seller_id", "images_json",
+        "coords_json", "category_id", "has_video",
     )
 
     def list_ads_for_refresh(self, only_missing: bool = False) -> list[dict]:
@@ -287,6 +348,8 @@ class SQLiteDBHandler:
         """Удаляет объявление (все строки с этим id)."""
         with sqlite3.connect(self.db_name) as conn:
             cursor = conn.execute("DELETE FROM viewed WHERE id = ?", (ad_id,))
+            conn.execute("DELETE FROM ad_refresh_state WHERE ad_id = ?", (ad_id,))
+            conn.execute("DELETE FROM notification_outbox WHERE ad_id = ? AND sent = 0", (ad_id,))
             conn.commit()
             return cursor.rowcount
 

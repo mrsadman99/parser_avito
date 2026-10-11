@@ -20,13 +20,15 @@ from integrations.notifications.factory import build_notifier
 from load_config import load_avito_config
 from models import ItemsResponse, Item
 from parser.cookies.factory import build_cookies_provider
-from parser.cancellation import Cancellation, ParseCancelled, cancellable_lock
+from parser.cancellation import Cancellation, ParseCancelled
 from parser.export.factory import build_result_storage
 from parser.http.client import HttpClient
 from parser.http.camoufox_client import CamoufoxClient
 from parser.proxies.proxy_factory import build_proxy
 from parser.proxies.proxy import ProxyRotationError
 from parser.url_converter import AvitoUrlConverter
+from parser.request_queue import RequestThrottle
+from parser.mobile_detail import parse_mobile_detail
 from utils.parse_phone import ParsePhone
 from utils.own_mobile_proxy import ensure_own_mobile_proxy
 from version import VERSION
@@ -35,30 +37,6 @@ from lang import SPFA_PROXY_REQUIRED
 DEBUG_MODE = False
 
 logger.add("logs/app.log", rotation="5 MB", retention="5 days", level="DEBUG")
-
-
-class RequestThrottle:
-    """Сериализует все запросы к Avito общей случайной задержкой между ними.
-
-    Запросы от разных ссылок/потоков встают в очередь на блокировке; перед
-    каждым следующим запросом выдерживается случайная пауза в [min_delay, max_delay].
-    Пауза запускается только после того, как предыдущий запрос полностью обработался.
-    """
-
-    def __init__(self, min_delay: float, max_delay: float):
-        self.min_delay = max(0.0, float(min_delay))
-        self.max_delay = max(self.min_delay, float(max_delay))
-        self._lock = threading.Lock()
-        self._first = True
-
-    def run(self, fn, *args, cancellation=None, **kwargs):
-        cancellation = cancellation or Cancellation()
-        with cancellable_lock(self._lock, cancellation):
-            if not self._first:
-                cancellation.wait(random.uniform(self.min_delay, self.max_delay))
-            cancellation.checkpoint()
-            self._first = False
-            return fn(*args, **kwargs)
 
 
 class AvitoParse:
@@ -253,21 +231,33 @@ class AvitoParse:
         workers: dict[str, threading.Thread] = {}
 
         notification_stop = threading.Event()
+        refresh_worker = None
         threading.Thread(target=self._notification_cycle, args=(notification_stop,), daemon=True).start()
         try:
             # Шедулер не ждёт медленные отправки в мессенджеры.
             while not self._is_stopped():
                 links = self._current_links()
 
-                for source_key, target in links.items():
-                    if source_key not in workers:
-                        t = threading.Thread(
-                            target=self._link_cycle,
-                            args=(source_key, target),
-                            daemon=True,
-                        )
-                        t.start()
-                        workers[source_key] = t
+                with self.throttle.foreground():
+                    for source_key, target in links.items():
+                        if source_key not in workers:
+                            started = threading.Event()
+                            t = threading.Thread(
+                                target=self._link_cycle,
+                                args=(source_key, target),
+                                kwargs={"started": started},
+                                daemon=True,
+                            )
+                            t.start()
+                            workers[source_key] = t
+                            # Не отпускать начальный приоритет до регистрации обхода.
+                            while t.is_alive() and not started.wait(0.05):
+                                if self._is_stopped():
+                                    break
+
+                if refresh_worker is None and self.config.ad_refresh_interval > 0:
+                    refresh_worker = threading.Thread(target=self._refresh_cycle, daemon=True)
+                    refresh_worker.start()
 
                 for source_key in list(workers):
                     if not workers[source_key].is_alive():
@@ -277,6 +267,9 @@ class AvitoParse:
         finally:
             notification_stop.set()
             self._shutdown.set()
+            for worker in [*workers.values(), refresh_worker]:
+                if worker is not None:
+                    worker.join()
 
         if self._fatal_error is not None:
             raise self._fatal_error
@@ -286,7 +279,7 @@ class AvitoParse:
             f"плохие: {self.bad_request_count}шт"
         )
 
-    def _link_cycle(self, source_key: str, target: ParseTarget):
+    def _link_cycle(self, source_key: str, target: ParseTarget, started=None):
         """Обход и пауза отменяются при изменении версии или удалении подписки."""
         while not self._is_stopped():
             current_links = self._current_links()
@@ -300,9 +293,12 @@ class AvitoParse:
                 lambda: self._is_stopped() or self._current_links().get(source_key) != target
             )
             try:
-                api_url = self.url_converter.convert(target.url, cancellation=cancellation)
-                self._process_link(target.url, target.config, api_url,
-                                   source_key=source_key, cancellation=cancellation)
+                with self.throttle.foreground():
+                    if started is not None:
+                        started.set()
+                    api_url = self.url_converter.convert(target.url, cancellation=cancellation)
+                    self._process_link(target.url, target.config, api_url,
+                                       source_key=source_key, cancellation=cancellation)
                 logger.info(
                     f"Пауза до следующего цикла ссылки {self._query_label(target.url)}: "
                     f"{self.config.pause_general} сек."
@@ -367,6 +363,7 @@ class AvitoParse:
             ads = self._add_seller_to_ads(ads=ads)
             ads = self._add_promotion_to_ads(ads=ads)
             ads = self._add_seller_rating(ads=ads)
+            self.db_handler.update_catalog_status(ads)
 
             if not ads:
                 logger.info(
@@ -405,6 +402,58 @@ class AvitoParse:
             f"объявлений: {len(ads_in_link)} | "
             f"статус: {status}"
         )
+
+    def _refresh_cycle(self):
+        cancellation = Cancellation(self._is_stopped)
+        while not self._is_stopped():
+            try:
+                ad_id = self.db_handler.next_ad_for_refresh(self.config.ad_refresh_interval)
+                if ad_id is None:
+                    cancellation.wait(min(3.0, self.config.ad_refresh_interval))
+                    continue
+                self.throttle.run(self._refresh_ad, ad_id, cancellation,
+                                  cancellation=cancellation, background=True)
+            except ParseCancelled:
+                return
+            except ProxyRotationError as err:
+                self._fatal_error = err
+                self._shutdown.set()
+                logger.critical(f"Обновление карточки: смена IP неуспешна, завершаю парсер: {err}")
+                return
+            except Exception as err:
+                logger.warning(f"Ошибка фонового обновления: {err}")
+                self._sleep_interruptible(3)
+
+    def _refresh_ad(self, ad_id, cancellation):
+        """Полный цикл запроса и записи занимает один слот общей очереди."""
+        client = self.camoufox or self.http
+        try:
+            response = client.request(
+                "GET", f"https://m.avito.ru/api/1/card/items/{ad_id}",
+                cancellation=cancellation, accepted_statuses=(404, 410),
+                headers={"accept": "application/json, text/plain, */*", "referer": "https://m.avito.ru/"},
+            )
+            cancellation.checkpoint()
+            if response.status_code not in (200, 404, 410):
+                raise ValueError(f"Неожиданный статус карточки: {response.status_code}")
+            detail = parse_mobile_detail(response.json(), ad_id)
+            if detail['removed']:
+                self.db_handler.delete_ad(ad_id)
+                logger.info(f"Объявление {ad_id} снято, удалено из базы")
+            elif response.status_code == 200:
+                self.db_handler.update_ad(ad_id, {**detail['fields'], 'refreshed_at': _now_iso()})
+                logger.info(f"Объявление {ad_id}: данные обновлены")
+            else:
+                raise ValueError('HTTP-ошибка без подтверждения удаления объявления')
+            self.good_request_count += 1
+        except ParseCancelled:
+            raise
+        except Exception:
+            self.bad_request_count += 1
+            raise
+        finally:
+            # Даже неудачная проверка не создаёт бесконечный цикл для одного ID.
+            self.db_handler.finish_ad_refresh(ad_id)
 
     def _notification_cycle(self, stop_event):
         while not stop_event.is_set() and not self._is_stopped():

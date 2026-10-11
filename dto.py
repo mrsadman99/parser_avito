@@ -128,6 +128,7 @@ class AvitoConfig:
     debug_mode: int = 0
     detached_mode: bool = False  # true — фоновые процессы вместо tmux (parser/api/web)
     pause_general: int = 60
+    ad_refresh_interval: float = 3600.0  # сек. от последней проверки каждого объявления; 0 — отключить
     min_delay: float = 1.0      # мин. задержка между запросами к Avito, сек
     max_delay: float = 3.0      # макс. задержка между запросами к Avito, сек
     max_count_of_retry: int = 5
@@ -146,6 +147,10 @@ class AvitoConfig:
     open_full_ad: bool = False
 
     def __post_init__(self):
+        if (isinstance(self.ad_refresh_interval, bool)
+                or not isinstance(self.ad_refresh_interval, (int, float))
+                or not math.isfinite(self.ad_refresh_interval) or self.ad_refresh_interval < 0):
+            raise ValueError("ad_refresh_interval должен быть конечным числом >= 0")
         if type(self.ip_rotation_attempts) is not int or self.ip_rotation_attempts < 1:
             raise ValueError("ip_rotation_attempts должен быть целым числом >= 1")
         for name, minimum in (("ip_rotation_timeout", 0), ("ip_rotation_retry_delay", 0)):
