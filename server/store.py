@@ -8,16 +8,12 @@ import hashlib
 import json
 import secrets
 import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 
 from dto import LinkConfig, ParseTarget, web_link_key
+from db_service import now_iso
 
 DB_PATH = Path("storage/web.db")
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _connect() -> sqlite3.Connection:
@@ -105,7 +101,7 @@ def register(username: str, password: str) -> dict | None:
         with _connect() as conn:
             cur = conn.execute(
                 "INSERT INTO users (username, password_hash, salt, created_at) VALUES (?, ?, ?, ?)",
-                (username, pwd_hash, salt, _now_iso()),
+                (username, pwd_hash, salt, now_iso()),
             )
             conn.commit()
             return {"id": cur.lastrowid, "username": username}
@@ -181,7 +177,7 @@ def create_link_any(data: dict) -> dict | None:
             salt, pwd_hash = _hash_password(secrets.token_hex(16))
             cur = conn.execute(
                 "INSERT INTO users (username, password_hash, salt, created_at) VALUES (?, ?, ?, ?)",
-                (username, pwd_hash, salt, _now_iso()),
+                (username, pwd_hash, salt, now_iso()),
             )
             user_id = cur.lastrowid
         else:
@@ -203,7 +199,7 @@ def create_link_any(data: dict) -> dict | None:
                 data.get("start_date"),
                 _bool_int(data.get("ignore_reserv"), True),
                 _bool_int(data.get("ignore_promotion"), False),
-                _now_iso(),
+                now_iso(),
             ),
         )
         conn.commit()
@@ -246,7 +242,7 @@ def create_link(user_id: int, data: dict) -> dict:
                 data.get("start_date"),
                 _bool_int(data.get("ignore_reserv"), True),
                 _bool_int(data.get("ignore_promotion"), False),
-                _now_iso(),
+                now_iso(),
             ),
         )
         conn.commit()
@@ -277,7 +273,7 @@ def update_link(user_id: int, link_id: int, data: dict) -> dict | None:
                 data.get("start_date"),
                 _bool_int(data.get("ignore_reserv"), True),
                 _bool_int(data.get("ignore_promotion"), False),
-                _now_iso(),
+                now_iso(),
                 link_id,
                 user_id,
             ),
@@ -373,7 +369,7 @@ def update_link_any(link_id: int, data: dict) -> dict | None:
                 data.get("start_date"),
                 _bool_int(data.get("ignore_reserv"), True),
                 _bool_int(data.get("ignore_promotion"), False),
-                _now_iso(),
+                now_iso(),
                 link_id,
             ),
         )

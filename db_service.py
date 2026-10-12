@@ -7,7 +7,7 @@ from pathlib import Path
 from models import Item
 
 
-def _now_iso() -> str:
+def now_iso() -> str:
     """Текущее время в формате ISO (UTC)."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -140,7 +140,7 @@ class SQLiteDBHandler:
             # старым строкам без даты ставим текущий момент (только NULL)
             cursor.execute(
                 "UPDATE viewed SET scanned_at = ? WHERE scanned_at IS NULL",
-                (_now_iso(),),
+                (now_iso(),),
             )
             conn.commit()
 
@@ -157,7 +157,7 @@ class SQLiteDBHandler:
                 (
                     ad.id,
                     ad.priceDetailed.value,
-                    _now_iso(),
+                    now_iso(),
                     _ad_desc(ad),
                 ),
             )
@@ -170,7 +170,7 @@ class SQLiteDBHandler:
                              source_key: str | None = None, recipients=()):
         """Сохраняет результаты и очередь уведомлений одной транзакцией."""
         source_key = source_key if source_key is not None else (source_url or "")
-        now = _now_iso()
+        now = now_iso()
         records = [
             (
                 ad.id,

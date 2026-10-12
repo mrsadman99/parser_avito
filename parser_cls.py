@@ -8,7 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from loguru import logger
 from pydantic import ValidationError
 
-from db_service import SQLiteDBHandler, _now_iso
+from db_service import SQLiteDBHandler, now_iso
 from dto import Proxy, AvitoConfig, ParseTarget
 from filters.ads_filter import AdsFilter
 from hide_private_data import log_config
@@ -470,7 +470,7 @@ class AvitoParse:
                 self.db_handler.delete_ad(ad_id)
                 logger.info(f"Объявление {ad_id} снято, удалено из базы")
             elif response.status_code == 200:
-                self.db_handler.update_ad(ad_id, {**detail['fields'], 'refreshed_at': _now_iso()})
+                self.db_handler.update_ad(ad_id, {**detail['fields'], 'refreshed_at': now_iso()})
                 logger.info(f"Объявление {ad_id}: данные обновлены")
             else:
                 raise ValueError('HTTP-ошибка без подтверждения удаления объявления')
@@ -593,7 +593,7 @@ class AvitoParse:
 
     def __save_viewed(self, ads: list[Item], source_url: str = None, source_key: str | None = None) -> None:
         """Сохраняет просмотренные объявления и ставит дату сканирования (UTC)."""
-        now = _now_iso()
+        now = now_iso()
         for ad in ads:
             ad.scanned_at = now
         self.db_handler.add_record_from_page(
