@@ -15,6 +15,7 @@
 import secrets
 import time
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -28,21 +29,44 @@ from dto import web_link_key
 from load_config import load_avito_config
 from server import store
 
-store.init_db()
+_config = None
 
-try:
-    _CONFIG = load_avito_config("config.toml")
-except Exception:
-    _CONFIG = None
 
-_ADMIN_PASSWORD = (_CONFIG.server.admin_password or "").strip() if _CONFIG else ""
-_WEB_PORT = _CONFIG.server.web_server_port if _CONFIG else 3000
-_CORS_EXTRA = list(_CONFIG.server.cors_origins or []) if _CONFIG else []
+def get_config():
+    """Загружает config.toml один раз и кэширует (None, если не удалось)."""
+    global _config
+    if _config is None:
+        try:
+            _config = load_avito_config("config.toml")
+        except Exception:
+            _config = None
+    return _config
 
-if _ADMIN_PASSWORD in ("", "admin"):
-    logger.warning(
-        "ВНИМАНИЕ: admin_password пуст или слабый ('admin'). Задайте сильный пароль в config.toml"
-    )
+
+def _admin_password() -> str:
+    config = get_config()
+    return (config.server.admin_password or "").strip() if config else ""
+
+
+def _web_port() -> int:
+    config = get_config()
+    return config.server.web_server_port if config else 3000
+
+
+def _cors_extra() -> list:
+    config = get_config()
+    return list(config.server.cors_origins or []) if config else []
+
+
+@asynccontextmanager
+async def lifespan(app):
+    store.init_db()
+    if _admin_password() in ("", "admin"):
+        logger.warning(
+            "ВНИМАНИЕ: admin_password пуст или слабый ('admin'). Задайте сильный пароль в config.toml"
+        )
+    yield
+
 
 _ADMIN_TOKEN = None
 
@@ -62,10 +86,10 @@ def _auth_fail(key: str) -> None:
     _AUTH_ATTEMPTS[key].append(time.time())
 
 
-app = FastAPI(title="Avito Parser API")
+app = FastAPI(title="Avito Parser API", lifespan=lifespan)
 
-_cors_origins = set(_CORS_EXTRA)
-_cors_origins.update({f"http://localhost:{_WEB_PORT}", f"http://127.0.0.1:{_WEB_PORT}"})
+_cors_origins = set(_cors_extra())
+_cors_origins.update({f"http://localhost:{_web_port()}", f"http://127.0.0.1:{_web_port()}"})
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(_cors_origins),
@@ -95,7 +119,7 @@ class LinkRequest(BaseModel):
 
 def current_actor(authorization: str | None = Header(default=None)) -> dict:
     token = (authorization or "").removeprefix("Bearer ").strip()
-    if _ADMIN_PASSWORD and token and token == _ADMIN_TOKEN:
+    if _admin_password() and token and token == _ADMIN_TOKEN:
         return {"id": None, "username": "admin", "is_admin": True}
     user = store.get_user_by_token(token)
     if user is None:
@@ -131,9 +155,9 @@ def login(req: AuthRequest, request: Request):
     if _auth_limited(key):
         raise HTTPException(status_code=429, detail="Слишком много попыток, попробуйте позже")
     if (
-        _ADMIN_PASSWORD
+        _admin_password()
         and req.username.strip().lower() == "admin"
-        and req.password == _ADMIN_PASSWORD
+        and req.password == _admin_password()
     ):
         _ADMIN_TOKEN = secrets.token_hex(32)
         return {"token": _ADMIN_TOKEN, "username": "admin", "is_admin": True}

@@ -38,8 +38,6 @@ from lang import SPFA_PROXY_REQUIRED
 
 DEBUG_MODE = False
 
-configure_app_logging()
-
 
 class AvitoParse:
     def __init__(
@@ -678,6 +676,7 @@ class AvitoParse:
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
+    configure_app_logging()
     try:
         config = load_avito_config("config.toml")
     except Exception as err:

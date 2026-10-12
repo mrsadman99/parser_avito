@@ -18,6 +18,9 @@ from load_config import load_avito_config
 
 
 def main():
+    from utils.logging_setup import configure_app_logging
+    configure_app_logging()
+
     config = load_avito_config("config.toml")
 
     from server import store

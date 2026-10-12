@@ -639,7 +639,7 @@ class RegressionTests(unittest.TestCase):
         link = store.create_link(user_id, {"url": self.url})
         self.db.add_record_from_page([ad(1)], self.url, web_link_key(link["id"], self.url))
         self.db.add_record_from_page([ad(2)], self.url)
-        with patch.object(self.server, "_ADMIN_PASSWORD", "test"), patch.object(self.server, "_ADMIN_TOKEN", "admin-token"):
+        with patch.object(self.server, "_admin_password", return_value="test"), patch.object(self.server, "_ADMIN_TOKEN", "admin-token"):
             headers = {"Authorization": "Bearer admin-token"}
             response = self.client.get("/api/ads", params={"link_id": link["id"]}, headers=headers)
             self.assertEqual([row["id"] for row in response.json()], [1])

@@ -766,4 +766,6 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
+    from utils.logging_setup import configure_app_logging
+    configure_app_logging()
     ft.app(target=main, assets_dir="assets")
