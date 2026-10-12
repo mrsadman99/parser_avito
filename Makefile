@@ -13,6 +13,26 @@ CONTAINER_NAME = parser_avito_container
 
 .PHONY: build run restart stop logs shell clean rebuild
 
+MONITORING_COMPOSE = docker compose --env-file monitoring/.env -f docker-compose.monitoring.yml
+.PHONY: monitoring-init monitoring-up monitoring-down monitoring-logs monitoring-check
+
+monitoring-init:
+	python3 scripts/init_monitoring.py
+
+monitoring-up:
+	$(MONITORING_COMPOSE) up -d
+
+monitoring-down:
+	$(MONITORING_COMPOSE) down
+
+monitoring-logs:
+	$(MONITORING_COMPOSE) logs -f --tail=100
+
+monitoring-check:
+	$(MONITORING_COMPOSE) config --quiet
+	$(MONITORING_COMPOSE) run --rm --no-deps loki -config.file=/etc/loki/config.yml -verify-config=true
+	$(MONITORING_COMPOSE) run --rm --no-deps alloy validate /etc/alloy/config.alloy
+
 # 🏗️ Сборка Docker-образа
 build:
 	docker build -t $(IMAGE_NAME) .

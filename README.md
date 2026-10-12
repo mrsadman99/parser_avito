@@ -8,6 +8,8 @@
 
 **Подписки, миграция результатов и очередь уведомлений** — [описание](docs/SUBSCRIPTIONS.md)
 
+**Grafana + Loki + Alloy для просмотра логов** — [запуск мониторинга в Docker](docs/MONITORING.md)
+
 ![Avito Parser GUI](docs/media/gui.gif)
 
 ### Последние изменения

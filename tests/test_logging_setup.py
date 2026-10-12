@@ -1,5 +1,7 @@
 import tempfile
 import unittest
+import json
+from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
@@ -18,6 +20,33 @@ class LoggingRotationProxy:
 
 
 class LoggingTests(unittest.TestCase):
+    def test_json_events_preserve_multiline_and_redact_secrets_without_extra(self):
+        with tempfile.TemporaryDirectory() as directory:
+            handlers = configure_app_logging(directory)
+            secret = "123456789:" + "x" * 30
+            try:
+                log = logger.bind(log_category="notifications", private_extra="must-not-be-exported")
+                log.info('Сообщение с переносом\n{"braces": true} <tag>')
+                try:
+                    raise ValueError('request failed for https://api.telegram.org/bot' + secret + '/sendPhoto')
+                except ValueError:
+                    log.exception('Ошибка отправки')
+            finally:
+                for handler in handlers:
+                    logger.remove(handler)
+            raw = (Path(directory) / "events.jsonl").read_text()
+            self.assertEqual(len(raw.splitlines()), 2)
+            events = [json.loads(line) for line in raw.splitlines()]
+            self.assertEqual(events[0]['message'], 'Сообщение с переносом\n{"braces": true} <tag>')
+            self.assertEqual(events[0]['level'], 'info')
+            self.assertEqual(events[0]['subsystem'], 'notifications')
+            self.assertEqual(events[1]['level'], 'error')
+            self.assertIn('ValueError', events[1]['exception'])
+            self.assertIn('<redacted-token>', events[1]['exception'])
+            self.assertIsNotNone(datetime.fromisoformat(events[0]['timestamp']).utcoffset())
+            self.assertNotIn(secret, raw)
+            self.assertNotIn('must-not-be-exported', raw)
+
     def test_spawned_rotation_logs_reach_parent_files(self):
         with tempfile.TemporaryDirectory() as directory:
             handlers = configure_app_logging(directory)

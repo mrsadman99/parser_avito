@@ -1,0 +1,47 @@
+logging {
+  level = "info"
+}
+
+// Only the canonical JSON stream: app.log and category files repeat these events.
+loki.source.file "avito" {
+  targets = [{
+    __path__     = "/var/log/avito/events.jsonl",
+    service_name = "parser_avito",
+    job          = "avito",
+    instance     = sys.env("AVITO_INSTANCE"),
+  }]
+  tail_from_end = false
+  forward_to   = [loki.process.avito.receiver]
+}
+
+loki.process "avito" {
+  stage.json {
+    expressions = {
+      timestamp = "timestamp",
+      level     = "level",
+      subsystem = "subsystem",
+    }
+  }
+  stage.timestamp {
+    source            = "timestamp"
+    format            = "RFC3339Nano"
+    action_on_failure = "skip"
+  }
+  // IDs, URLs, messages and timestamps stay in JSON, not in the Loki index.
+  stage.labels {
+    values = {
+      level     = "",
+      subsystem = "",
+    }
+  }
+  stage.label_drop {
+    values = ["filename"]
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

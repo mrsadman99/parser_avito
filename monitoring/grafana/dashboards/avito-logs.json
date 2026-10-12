@@ -1,0 +1,390 @@
+{
+  "uid": "avito-logs",
+  "title": "Avito — логи",
+  "tags": [
+    "avito",
+    "logs"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "label": "Сервер",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "avito-loki"
+        },
+        "query": "label_values({service_name=\"parser_avito\"}, instance)",
+        "definition": "label_values({service_name=\"parser_avito\"}, instance)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "subsystem",
+        "label": "Алгоритм",
+        "type": "custom",
+        "query": "scanning,notifications,blocking,general",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "scanning",
+            "value": "scanning",
+            "selected": false
+          },
+          {
+            "text": "notifications",
+            "value": "notifications",
+            "selected": false
+          },
+          {
+            "text": "blocking",
+            "value": "blocking",
+            "selected": false
+          },
+          {
+            "text": "general",
+            "value": "general",
+            "selected": false
+          }
+        ]
+      },
+      {
+        "name": "level",
+        "label": "Уровень",
+        "type": "custom",
+        "query": "trace,debug,info,success,warning,error,critical",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "trace",
+            "value": "trace",
+            "selected": false
+          },
+          {
+            "text": "debug",
+            "value": "debug",
+            "selected": false
+          },
+          {
+            "text": "info",
+            "value": "info",
+            "selected": false
+          },
+          {
+            "text": "success",
+            "value": "success",
+            "selected": false
+          },
+          {
+            "text": "warning",
+            "value": "warning",
+            "selected": false
+          },
+          {
+            "text": "error",
+            "value": "error",
+            "selected": false
+          },
+          {
+            "text": "critical",
+            "value": "critical",
+            "selected": false
+          }
+        ]
+      },
+      {
+        "name": "search",
+        "label": "Текст / ID объявления",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "События по алгоритмам / минута",
+      "datasource": {
+        "type": "loki",
+        "uid": "avito-loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 16,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "avito-loki"
+          },
+          "expr": "sum by (subsystem) (count_over_time({service_name=\"parser_avito\", instance=~\"$instance\", subsystem=~\"$subsystem\", level=~\"$level\"} |= ${search:doublequote}[1m]))",
+          "legendFormat": "{{subsystem}}",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Ошибки за выбранный период",
+      "datasource": {
+        "type": "loki",
+        "uid": "avito-loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "avito-loki"
+          },
+          "expr": "sum(count_over_time({service_name=\"parser_avito\", instance=~\"$instance\", subsystem=~\"$subsystem\", level=~\"error|critical\"} |= ${search:doublequote}[$__range])) or vector(0)",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 3,
+      "type": "logs",
+      "title": "Общий журнал",
+      "datasource": {
+        "type": "loki",
+        "uid": "avito-loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "avito-loki"
+          },
+          "expr": "{service_name=\"parser_avito\", instance=~\"$instance\", subsystem=~\"$subsystem\", level=~\"$level\"} |= ${search:doublequote} | json | line_format \"{{.message}}{{if .exception}}\\n{{.exception}}{{end}}\"",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 4,
+      "type": "logs",
+      "title": "Обход и обновление объявлений",
+      "datasource": {
+        "type": "loki",
+        "uid": "avito-loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "avito-loki"
+          },
+          "expr": "{service_name=\"parser_avito\", instance=~\"$instance\", subsystem=\"scanning\", level=~\"$level\"} |= ${search:doublequote} | json | line_format \"{{.message}}{{if .exception}}\\n{{.exception}}{{end}}\"",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 5,
+      "type": "logs",
+      "title": "Отправка уведомлений",
+      "datasource": {
+        "type": "loki",
+        "uid": "avito-loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "avito-loki"
+          },
+          "expr": "{service_name=\"parser_avito\", instance=~\"$instance\", subsystem=\"notifications\", level=~\"$level\"} |= ${search:doublequote} | json | line_format \"{{.message}}{{if .exception}}\\n{{.exception}}{{end}}\"",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 6,
+      "type": "logs",
+      "title": "Блокировки, cookies, смена IP и ADB",
+      "datasource": {
+        "type": "loki",
+        "uid": "avito-loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "avito-loki"
+          },
+          "expr": "{service_name=\"parser_avito\", instance=~\"$instance\", subsystem=\"blocking\", level=~\"$level\"} |= ${search:doublequote} | json | line_format \"{{.message}}{{if .exception}}\\n{{.exception}}{{end}}\"",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    }
+  ]
+}

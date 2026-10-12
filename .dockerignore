@@ -10,3 +10,6 @@ __pycache__
 *.bat
 database.db
 december.txt
+.env
+.env.*
+monitoring/.env
