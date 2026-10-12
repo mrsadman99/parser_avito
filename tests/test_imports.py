@@ -22,7 +22,6 @@ ROOT_MODULES = (
     "db_service",
     "load_config",
     "proxy_helpers",
-    "common_data",
     "hide_private_data",
     "version",
     "lang",

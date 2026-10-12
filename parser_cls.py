@@ -12,7 +12,6 @@ from bs4 import BeautifulSoup
 from loguru import logger
 from pydantic import ValidationError
 
-from common_data import HEADERS
 from db_service import SQLiteDBHandler, _now_iso
 from dto import Proxy, AvitoConfig, ParseTarget
 from filters.ads_filter import AdsFilter
@@ -60,7 +59,6 @@ class AvitoParse:
         self.stop_event = stop_event
         self._shutdown = threading.Event()
         self._fatal_error = None
-        self.headers = HEADERS
         self.good_request_count = 0
         self.bad_request_count = 0
         self.http = HttpClient(
@@ -531,28 +529,6 @@ class AvitoParse:
     @staticmethod
     def _clean_null_ads(ads: list[Item]) -> list[Item]:
         return [ad for ad in ads if ad.id]
-
-    @staticmethod
-    def find_json_on_page(html_code, data_type: str = "mime") -> dict:
-        import html as html_lib
-        html_code = BeautifulSoup(html_code, "html.parser")
-        try:
-            for _script in html_code.select('script'):
-
-                script_type = _script.get('type')
-
-                if data_type == 'mime':
-                    for script in html_code.select('script'):
-                        if script.get('type') == 'mime/invalid' and script.get('data-mfe-state') == 'true' and 'sandbox' not in script.text:
-                            data = json.loads(html_lib.unescape(script.text))
-                            if data.get('i18n', {}).get('hasMessages'):
-                                return data.get('loaderData', {}).get("data", {})
-
-        except Exception as err:
-            logger.error(f"Ошибка при поиске информации на странице: {err}")
-        logger.warning("not found json")
-        return {}
-
 
     def filter_ads(self, ads: list[Item], min_price=None, max_price=None,
                    white_list=None, black_list=None, geo=None, start_date=None,
