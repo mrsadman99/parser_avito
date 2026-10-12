@@ -1,8 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Dict
 
-import httpx
-
 
 class CookiesProvider(ABC):
 
@@ -10,7 +8,7 @@ class CookiesProvider(ABC):
     def get(self) -> Dict[str, str]:
         pass
 
-    def update(self, response: httpx.Response) -> None:
+    def update(self, response) -> None:
         """
         Обновить cookies после запроса.
         По умолчанию — ничего не делать.

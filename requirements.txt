@@ -3,7 +3,6 @@
 
 # --- HTTP / парсинг ---
 curl_cffi==0.16.0            # HTTP-клиент парсера (имитация отпечатка браузера)
-httpx==0.28.1                # HTTP для cookies / уведомлений
 requests==2.32.3             # HTTP для прокси / SPFA / уведомлений
 PySocks==1.7.1               # поддержка socks5:// прокси в requests
 beautifulsoup4==4.13.4       # парсинг HTML
@@ -20,14 +19,10 @@ pydantic==2.9.2
 
 # --- Excel ---
 openpyxl==3.1.5
-pyexcel==0.7.1
-pyexcel-io==0.6.7
-pyexcel-xlsx==0.6.0
 
 # --- Логирование / конфиг / время ---
 loguru==0.7.0
 tomli_w==1.2.0
-PyYAML==6.0.2
 tzdata==2025.2
 tzlocal==5.3.1
 
