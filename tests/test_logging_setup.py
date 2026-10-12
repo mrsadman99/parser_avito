@@ -1,0 +1,75 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from loguru import logger
+
+from utils.logging_setup import configure_app_logging, log_category
+from parser.cancellation import Cancellation
+from parser.proxies.rotation import _rotation_attempt
+
+
+class LoggingRotationProxy:
+    rotation_timeout = 5
+
+    def handle_block(self):
+        logger.info("CHILD_ROTATION 123456789:" + "x" * 30)
+        return True
+
+
+class LoggingTests(unittest.TestCase):
+    def test_spawned_rotation_logs_reach_parent_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            handlers = configure_app_logging(directory)
+            try:
+                self.assertEqual(_rotation_attempt(LoggingRotationProxy(), Cancellation()), (True, None))
+            finally:
+                for handler in handlers:
+                    logger.remove(handler)
+            for category in ("app", "blocking"):
+                content = (Path(directory) / f"{category}.log").read_text()
+                self.assertIn("CHILD_ROTATION <redacted-token>", content)
+                self.assertNotIn("123456789:", content)
+            self.assertNotIn("CHILD_ROTATION", (Path(directory) / "scanning.log").read_text())
+
+    def test_routing_shared_log_and_secret_redaction(self):
+        with tempfile.TemporaryDirectory() as directory:
+            handlers = configure_app_logging(directory)
+            try:
+                cases = [
+                    ("parser_cls", "_run_scheduler", "ROUND", "scanning"),
+                    ("parser_cls", "_refresh_ad", "REFRESH", "scanning"),
+                    ("parser_cls", "_deliver_pending_notifications", "DELIVERY", "notifications"),
+                    ("integrations.notifications.transport", "request", "TELEGRAM", "notifications"),
+                    ("parser.http.client", "request", "HTTP", "blocking"),
+                    ("parser.cookies.external_api", "unblock", "COOKIES", "blocking"),
+                    ("parser.proxies.rotation", "rotate_with_retries", "ROTATE", "blocking"),
+                    ("utils.adb", "run_adb", "ADB", "blocking"),
+                    ("server.main", "unrelated", "OTHER", None),
+                ]
+                token = "123456789:" + "x" * 30
+                for name, function, message, category in cases:
+                    log = logger.patch(lambda record, n=name, f=function: record.update(name=n, function=f))
+                    log.info(message + " " + token)
+                logger.bind(log_category="blocking").critical("FATAL_ROTATION")
+            finally:
+                for handler in handlers:
+                    logger.remove(handler)
+            logs = {category: (Path(directory) / f"{category}.log").read_text()
+                    for category in ("app", "scanning", "notifications", "blocking")}
+            for name, function, message, expected in cases:
+                self.assertIn(message, logs["app"])
+                for category in ("scanning", "notifications", "blocking"):
+                    self.assertEqual(message in logs[category], category == expected, (message, category))
+            for content in logs.values():
+                self.assertNotIn(token, content)
+            self.assertIn("FATAL_ROTATION", logs["blocking"])
+            self.assertIn("FATAL_ROTATION", logs["app"])
+            self.assertNotIn("FATAL_ROTATION", logs["scanning"])
+
+    def test_direct_parser_entrypoint_routes_by_filename(self):
+        record = dict(name="__main__", file=type("File", (), {"name": "parser_cls.py"})(),
+                      function="_notification_cycle", extra={})
+        self.assertEqual(log_category(record), "notifications")
+        record["function"] = "_link_cycle"
+        self.assertEqual(log_category(record), "scanning")

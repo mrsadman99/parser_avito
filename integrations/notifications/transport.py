@@ -6,8 +6,25 @@ from typing import Callable
 
 import requests
 from loguru import logger
+from hide_private_data import redact_log_text
 
 RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+
+
+def safe_request_error(error):
+    message = redact_log_text(str(error))
+    response = getattr(error, 'response', None)
+    if response is not None:
+        try:
+            payload = response.json()
+        except (ValueError, requests.RequestException):
+            payload = None
+        description = payload.get('description') if isinstance(payload, dict) else None
+        if isinstance(description, str):
+            # Только причина ошибки API: без запроса, заголовков и полного тела ответа.
+            description = redact_log_text(description).replace('\n', ' ').replace('\r', ' ')[:500]
+            message += f'; API description: {description}'
+    return message
 
 
 def send_with_retries(
@@ -35,11 +52,13 @@ def send_with_retries(
             return response
 
         except requests.HTTPError as e:
+            e._log_sensitive = getattr(e, '_log_sensitive', False) or redact_log_text(str(e)) != str(e)
+            e.args = (safe_request_error(e),)
             resp = e.response
             # 4xx errors other than 429 are client errors — retrying won't help
             if resp is not None and 400 <= resp.status_code < 500 and resp.status_code not in RETRY_STATUS_CODES:
                 logger.error(
-                    f"[notify] non-retryable client error {resp.status_code}, aborting"
+                    f"[notify] non-retryable client error {resp.status_code}, aborting: {e}"
                 )
                 raise
 
@@ -55,6 +74,8 @@ def send_with_retries(
             time.sleep(sleep_time)
 
         except requests.RequestException as e:
+            e._log_sensitive = getattr(e, '_log_sensitive', False) or redact_log_text(str(e)) != str(e)
+            e.args = (redact_log_text(str(e)),)
             logger.warning(
                 f"[notify retry] attempt {attempt}/{retries}: {e}"
             )

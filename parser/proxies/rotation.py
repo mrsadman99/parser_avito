@@ -14,6 +14,14 @@ from parser.proxies.proxy import ProxyRotationError
 def _rotation_worker(proxy, sender):
     if os.name == "posix":
         os.setsid()
+    # Spawn не наследует sinks родителя. Передаём сообщения ему же, чтобы
+    # сохранять единые журналы и не вращать один файл из нескольких процессов.
+    import hide_private_data  # noqa: F401 — маскировка до передачи сообщения
+    logger.remove()
+    logger.add(
+        lambda message: sender.send(("log", message.record["level"].name, str(message).rstrip())),
+        format="{name}:{function}:{line} - {message}", level="DEBUG", diagnose=False,
+    )
     try:
         sender.send((bool(proxy.handle_block()), None))
     except Exception as err:
@@ -56,9 +64,13 @@ def _rotation_attempt(proxy, cancellation):
                 return False, f"таймаут {proxy.rotation_timeout} сек."
             if receiver.poll(min(cancellation.poll_interval, remaining)):
                 try:
-                    return receiver.recv()
+                    result = receiver.recv()
                 except EOFError:
                     return False, "процесс смены IP завершился без результата"
+                if result[0] == "log":
+                    logger.bind(log_category="blocking").log(result[1], result[2])
+                    continue
+                return result
             if not process.is_alive():
                 return False, f"процесс смены IP завершился с кодом {process.exitcode}"
     finally:

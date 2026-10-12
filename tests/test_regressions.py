@@ -128,6 +128,31 @@ class RegressionTests(unittest.TestCase):
         ]})
         parser._process_link(url or self.url, config or LinkConfig(), "https://example.invalid", key)
 
+    def test_scan_summary_distinguishes_partial_failure_and_valid_empty_catalog(self):
+        valid = {"items": [ad().model_dump(mode="json")]}
+        invalid = {"items": [{"id": 2, "priceDetailed": "invalid"}]}
+        cases = [
+            ([valid, None], '⚠️ частично успешно', 'страниц обработано: 1; с ошибками: 1', '[2]'),
+            ([None, invalid], '❌ не удалось', 'страниц обработано: 0; с ошибками: 2', '[1, 2]'),
+            ([{"items": []}], '✅ успешно', 'страниц обработано: 1; с ошибками: 0', '[]'),
+            ([valid, valid], '✅ успешно', 'страниц обработано: 2; с ошибками: 0', '[]'),
+        ]
+        for responses, status, counts, pages in cases:
+            with self.subTest(status=status, responses=len(responses)):
+                parser = self.parser()
+                parser.config.count = 2
+                parser.fetch_api_data = Mock(side_effect=responses)
+                messages = []
+                sink = logger.add(lambda message: messages.append(str(message)), format='{message}')
+                try:
+                    parser._process_link(self.url, LinkConfig(), 'https://example.invalid', 'summary')
+                finally:
+                    logger.remove(sink)
+                summary = next(m for m in messages if '📊 Сканирование:' in m)
+                self.assertIn(status, summary)
+                self.assertIn(counts, summary)
+                self.assertIn('номера неуспешных страниц: ' + pages, summary)
+
     def start_link_worker(self, parser, key):
         parser.stop_event = threading.Event()
         parser.url_converter = Mock(convert=Mock(return_value="https://example.invalid"))
@@ -200,12 +225,18 @@ class RegressionTests(unittest.TestCase):
             (first if len(calls) == 1 else second).set()
 
         parser._process_link = process
-        thread = self.start_link_worker(parser, key)
+        parser.config.ad_refresh_interval = 0
+        parser.stop_event = threading.Event()
+        parser.url_converter = Mock(convert=Mock(return_value="https://example.invalid"))
+        thread = threading.Thread(target=parser._run_scheduler, daemon=True)
+        self.workers.append((parser, thread))
+        thread.start()
         self.assertTrue(first.wait(timeout=1))
         # Admin updates must advance the same version as ordinary user updates.
         store.update_link_any(link["id"], {"url": self.url, "min_price": 100})
         self.assertTrue(second.wait(timeout=1))
         store.delete_link_any(link["id"])
+        parser.stop_event.set()
         thread.join(timeout=1)
         self.assertFalse(thread.is_alive())
         self.assertEqual(calls, [None, 100])

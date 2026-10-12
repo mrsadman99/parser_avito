@@ -138,7 +138,7 @@ class HttpClient:
                 if self.cookies:
                     self.cookies.update(response)
 
-                print(response.url)
+                logger.debug("HTTP-ответ {}: {}", response.status_code, response.url)
                 if response.status_code in (403, 429, 439):
                     self._block_attempts += 1
                     self.block_count += 1

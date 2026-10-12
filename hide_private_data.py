@@ -2,6 +2,36 @@ import re
 from loguru import logger
 
 
+def redact_log_text(value: str) -> str:
+    """Скрывает токены Telegram (включая URL-encoded) и авторизацию прокси."""
+    value = re.sub(r"(?<![\w])\d{5,}(?::|%3[aA])[A-Za-z0-9_-]{20,}", "<redacted-token>", str(value))
+    # В URL токену предшествует bot, поэтому граница слова выше не подходит.
+    value = re.sub(r"bot\d+(?::|%3[aA])[A-Za-z0-9_-]+", "bot<redacted-token>", value)
+    return re.sub(r"(https?://)[^\s/@]+:[^\s/@]+@", r"\1<redacted-auth>@", value)
+
+
+def redact_log_record(record):
+    record['message'] = redact_log_text(record['message'])
+    exception = record.get('exception')
+    if exception is not None:
+        # Не оставляем секрет в цепочке исключений и локальных переменных traceback.
+        current, seen, messages, changed = exception.value, set(), [], False
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            original = str(current)
+            safe = redact_log_text(original)
+            changed |= safe != original or getattr(current, '_log_sensitive', False)
+            messages.append(f'{type(current).__name__}: {safe}')
+            current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+        if changed:
+            record['exception'] = exception._replace(
+                type=RuntimeError, value=RuntimeError(' | '.join(messages)), traceback=None)
+
+
+# Общая защита консоли, файлов и GUI Loguru, включая исключения из requests.
+logger.configure(patcher=redact_log_record)
+
+
 def mask_sensitive_data(config_str: str) -> str:
     """
     Маскирует приватные данные (прокси, токены, пароли и т.п.) в строке конфига.
@@ -47,7 +77,7 @@ def mask_sensitive_data(config_str: str) -> str:
         flags=re.IGNORECASE,
     )
 
-    return masked
+    return redact_log_text(masked)
 
 
 def _mask_url(url: str) -> str:

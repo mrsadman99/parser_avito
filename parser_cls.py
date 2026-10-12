@@ -5,6 +5,7 @@ import re
 import threading
 import multiprocessing
 import time
+from contextlib import ExitStack
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
@@ -31,12 +32,13 @@ from parser.request_queue import RequestThrottle
 from parser.mobile_detail import parse_mobile_detail
 from utils.parse_phone import ParsePhone
 from utils.own_mobile_proxy import ensure_own_mobile_proxy
+from utils.logging_setup import configure_app_logging
 from version import VERSION
 from lang import SPFA_PROXY_REQUIRED
 
 DEBUG_MODE = False
 
-logger.add("logs/app.log", rotation="5 MB", retention="5 days", level="DEBUG")
+configure_app_logging()
 
 
 class AvitoParse:
@@ -228,49 +230,7 @@ class AvitoParse:
         else:
             logger.warning("Не удалось определить текущий IP")
 
-        workers: dict[str, threading.Thread] = {}
-
-        notification_stop = threading.Event()
-        refresh_worker = None
-        threading.Thread(target=self._notification_cycle, args=(notification_stop,), daemon=True).start()
-        try:
-            # Шедулер не ждёт медленные отправки в мессенджеры.
-            while not self._is_stopped():
-                links = self._current_links()
-
-                with self.throttle.foreground():
-                    for source_key, target in links.items():
-                        if source_key not in workers:
-                            started = threading.Event()
-                            t = threading.Thread(
-                                target=self._link_cycle,
-                                args=(source_key, target),
-                                kwargs={"started": started},
-                                daemon=True,
-                            )
-                            t.start()
-                            workers[source_key] = t
-                            # Не отпускать начальный приоритет до регистрации обхода.
-                            while t.is_alive() and not started.wait(0.05):
-                                if self._is_stopped():
-                                    break
-
-                if refresh_worker is None and self.config.ad_refresh_interval > 0:
-                    refresh_worker = threading.Thread(target=self._refresh_cycle, daemon=True)
-                    refresh_worker.start()
-
-                for source_key in list(workers):
-                    if not workers[source_key].is_alive():
-                        del workers[source_key]
-
-                self._sleep_interruptible(3.0)
-        finally:
-            notification_stop.set()
-            self._shutdown.set()
-            for worker in [*workers.values(), refresh_worker]:
-                if worker is not None:
-                    worker.join()
-
+        self._run_scheduler()
         if self._fatal_error is not None:
             raise self._fatal_error
 
@@ -279,8 +239,77 @@ class AvitoParse:
             f"плохие: {self.bad_request_count}шт"
         )
 
-    def _link_cycle(self, source_key: str, target: ParseTarget, started=None):
-        """Обход и пауза отменяются при изменении версии или удалении подписки."""
+    def _run_scheduler(self):
+        """Все подписки проходят один раунд, затем очередь доступна обновлениям."""
+        workers = {}
+        completed = {}
+        refresh_allowed = threading.Event()
+        notification_stop = threading.Event()
+        refresh_worker = None
+        threading.Thread(target=self._notification_cycle, args=(notification_stop,), daemon=True).start()
+
+        def run_link(source_key, target, outcome):
+            outcome[0] = self._link_cycle(source_key, target)
+
+        round_scope = ExitStack()
+        round_number = 0
+        pause_until = None
+        try:
+            if self.config.ad_refresh_interval > 0:
+                refresh_worker = threading.Thread(
+                    target=self._refresh_cycle, args=(refresh_allowed,), daemon=True)
+                refresh_worker.start()
+
+            while not self._is_stopped():
+                for key, (worker, outcome) in list(workers.items()):
+                    if not worker.is_alive():
+                        completed[key] = outcome[0]
+                        del workers[key]
+
+                if round_number == 0 or (pause_until is not None and time.monotonic() >= pause_until):
+                    # Сначала закрываем доступ фоновым запросам, затем ставим поисковые.
+                    round_scope.enter_context(self.throttle.foreground())
+                    refresh_allowed.clear()
+                    completed.clear()
+                    pause_until = None
+                    round_number += 1
+                    logger.info(f"Раунд обхода {round_number}: начало")
+
+                links = self._current_links()
+                for source_key, target in links.items():
+                    if source_key not in workers and completed.get(source_key) != target:
+                        outcome = [target]
+                        worker = threading.Thread(
+                            target=run_link, args=(source_key, target, outcome), daemon=True)
+                        workers[source_key] = (worker, outcome)
+                        worker.start()
+
+                if pause_until is None and not workers:
+                    pause_until = time.monotonic() + self.config.pause_general
+                    logger.info(
+                        f"Раунд обхода {round_number}: завершён; общий перерыв "
+                        f"{self.config.pause_general} сек.; "
+                        + ("очередь доступна обновлениям карточек"
+                           if self.config.pause_general > 0 else "фоновое окно отключено")
+                    )
+                    # При нулевой паузе фоновые проверки между раундами отключены.
+                    if self.config.pause_general > 0:
+                        refresh_allowed.set()
+                    round_scope.close()
+
+                # Новые ссылки и изменения фильтров проверяются также во время перерыва.
+                remaining = 0.1 if pause_until is None else max(0, pause_until - time.monotonic())
+                self._sleep_interruptible(max(0.01, min(0.1, remaining)))
+        finally:
+            notification_stop.set()
+            self._shutdown.set()
+            round_scope.close()
+            for worker in [*(entry[0] for entry in workers.values()), refresh_worker]:
+                if worker is not None:
+                    worker.join()
+
+    def _link_cycle(self, source_key: str, target: ParseTarget):
+        """Один обход; изменение подписки перезапускает его с первой страницы."""
         while not self._is_stopped():
             current_links = self._current_links()
             if source_key not in current_links:
@@ -294,21 +323,16 @@ class AvitoParse:
             )
             try:
                 with self.throttle.foreground():
-                    if started is not None:
-                        started.set()
                     api_url = self.url_converter.convert(target.url, cancellation=cancellation)
                     self._process_link(target.url, target.config, api_url,
                                        source_key=source_key, cancellation=cancellation)
-                logger.info(
-                    f"Пауза до следующего цикла ссылки {self._query_label(target.url)}: "
-                    f"{self.config.pause_general} сек."
-                )
-                cancellation.wait(self.config.pause_general)
+                    cancellation.checkpoint()
+                return target
             except ProxyRotationError as err:
                 self._fatal_error = err
                 self._shutdown.set()
-                logger.critical(f"Все попытки смены IP неуспешны, завершаю парсер: {err}")
-                return
+                logger.bind(log_category="blocking").critical(f"Все попытки смены IP неуспешны, завершаю парсер: {err}")
+                return target
             except ParseCancelled:
                 logger.info(
                     f"Обход прерван: {self._query_label(target.url)}; "
@@ -320,7 +344,7 @@ class AvitoParse:
                 if self._is_stopped() or self._current_links().get(source_key) != target:
                     continue
                 logger.exception(f"Ошибка обхода {self._query_label(target.url)}: {err}")
-                return
+                return target
 
     def _process_link(self, source_url: str, link_cfg, api_url: str, source_key: str | None = None,
                       cancellation: Cancellation | None = None):
@@ -333,7 +357,8 @@ class AvitoParse:
             lo = link_cfg.min_price if link_cfg.min_price is not None else 0
             hi = link_cfg.max_price if link_cfg.max_price is not None else "∞"
             logger.info(f"Ценовой диапазон ссылки: {lo} – {hi}")
-        link_got_data = False
+        pages_ok = 0
+        failed_pages = []
         ads_in_link = []
 
         logger.info(f"🔍 Сканирую ссылку: {query_label}")
@@ -345,18 +370,21 @@ class AvitoParse:
             json_data = self.fetch_api_data(api_url=api_url, page=page, cancellation=cancellation)
             cancellation.checkpoint()
             if not json_data:
+                failed_pages.append(page)
                 logger.warning(f"Не удалось получить данные API для {query_label}")
                 continue
 
-            link_got_data = True
             catalog = self._extract_api_catalog(json_data)
             try:
                 ads_models = ItemsResponse(**catalog)
             except ValidationError as err:
+                failed_pages.append(page)
                 logger.error(
                     f"При валидации объявлений произошла ошибка: {err}"
                 )
                 continue
+
+            pages_ok += 1
 
             ads = self._clean_null_ads(ads=ads_models.items)
             logger.info(f"Объявлений перед фильтрацией {len(ads)}")
@@ -396,21 +424,29 @@ class AvitoParse:
                 self.result_storage.save(filtered_ads)
                 ads_in_link.extend(filtered_ads)
 
-        status = "✅ успешно" if link_got_data else "❌ не удалось"
-        logger.info(
+        status = ("❌ не удалось" if pages_ok == 0 else
+                  "⚠️ частично успешно" if failed_pages else "✅ успешно")
+        log = logger.warning if failed_pages or pages_ok == 0 else logger.info
+        log(
             f"📊 Сканирование: {query_label} | "
             f"объявлений: {len(ads_in_link)} | "
+            f"страниц обработано: {pages_ok}; с ошибками: {len(failed_pages)}; "
+            f"номера неуспешных страниц: {failed_pages} | "
             f"статус: {status}"
         )
 
-    def _refresh_cycle(self):
+    def _refresh_cycle(self, refresh_allowed=None):
         cancellation = Cancellation(self._is_stopped)
         while not self._is_stopped():
             try:
+                if refresh_allowed is not None and not refresh_allowed.is_set():
+                    cancellation.wait(0.1)
+                    continue
                 ad_id = self.db_handler.next_ad_for_refresh(self.config.ad_refresh_interval)
                 if ad_id is None:
                     cancellation.wait(min(3.0, self.config.ad_refresh_interval))
                     continue
+                logger.debug(f"Объявление {ad_id}: поставлено в очередь обновления")
                 self.throttle.run(self._refresh_ad, ad_id, cancellation,
                                   cancellation=cancellation, background=True)
             except ParseCancelled:
@@ -418,7 +454,7 @@ class AvitoParse:
             except ProxyRotationError as err:
                 self._fatal_error = err
                 self._shutdown.set()
-                logger.critical(f"Обновление карточки: смена IP неуспешна, завершаю парсер: {err}")
+                logger.bind(log_category="blocking").critical(f"Обновление карточки: смена IP неуспешна, завершаю парсер: {err}")
                 return
             except Exception as err:
                 logger.warning(f"Ошибка фонового обновления: {err}")
@@ -472,6 +508,7 @@ class AvitoParse:
             entry = self.db_handler.claim_notification(list(targets))
             if entry is None:
                 return
+            logger.debug(f"Уведомление {entry['id']}: начало отправки")
             try:
                 ad = Item.model_validate_json(entry["payload"])
                 targets[entry["recipient"]].notify(ad=ad)
@@ -480,6 +517,7 @@ class AvitoParse:
                 self.db_handler.finish_notification(entry["id"], success=False)
             else:
                 self.db_handler.finish_notification(entry["id"], success=True)
+                logger.debug(f"Уведомление {entry['id']}: доставка подтверждена")
 
     def close(self):
         """Освобождает ресурсы (Camoufox-браузер)."""

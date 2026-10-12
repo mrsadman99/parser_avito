@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from db_service import SQLiteDBHandler
-from dto import AvitoConfig
+from dto import AvitoConfig, LinkConfig, ParseTarget
 from load_config import load_avito_config
 from models import Item, PriceDetailed
 from parser.cancellation import Cancellation, ParseCancelled
@@ -100,6 +100,71 @@ class RefreshTests(unittest.TestCase):
         self.parser.stop_event = None
         self.parser._fatal_error = None
         self.parser.throttle = RequestThrottle(0, 0)
+
+    def test_refresh_crossing_round_boundary_is_not_repeated(self):
+        """Настоящие очередь, обновление и SQLite; подменяется только сеть."""
+        self.db.add_record_from_page([item(2)], 'search', 'one')
+        self.db.finish_ad_refresh(2, now=101)
+        self.parser.config.pause_general = .3
+        self.parser.url_converter = Mock(convert=Mock(return_value='https://example.invalid'))
+        self.parser._notification_cycle = Mock()
+        self.parser._current_links = lambda: {'search': ParseTarget('search', LinkConfig())}
+        first_started, next_round_queued, release_first, finished = (
+            threading.Event() for _ in range(4))
+        order = []
+        scans = []
+
+        def process(url, config, api_url, cancellation, **kwargs):
+            scans.append(url)
+            if len(scans) == 2:
+                next_round_queued.set()
+            self.parser.throttle.run(order.append, f'search:{len(scans)}', cancellation=cancellation)
+
+        def request(method, url, **kwargs):
+            ad_id = int(url.rsplit('/', 1)[-1])
+            order.append(f'ad:{ad_id}')
+            if ad_id == 1:
+                first_started.set()
+                release_first.wait(3)
+            return Mock(status_code=200, json=lambda: payload(ad_id))
+
+        select_due = self.db.next_ad_for_refresh
+
+        def next_due(interval):
+            result = select_due(interval)
+            if result is None:
+                finished.set()
+                self.parser._shutdown.set()
+            return result
+
+        self.db.next_ad_for_refresh = next_due
+        self.db.finish_ad_refresh = Mock(wraps=self.db.finish_ad_refresh)
+        self.parser.http.request.side_effect = request
+        self.parser._process_link = process
+        worker = threading.Thread(target=self.parser._run_scheduler, daemon=True)
+
+        def cleanup():
+            self.parser._shutdown.set()
+            release_first.set()
+            worker.join(2)
+            self.assertFalse(worker.is_alive())
+
+        self.addCleanup(cleanup)
+        worker.start()
+        self.assertTrue(first_started.wait(2))
+        self.assertTrue(next_round_queued.wait(2))
+        self.assertEqual(order, ['search:1', 'ad:1'])
+        release_first.set()
+        self.assertTrue(finished.wait(2))
+        worker.join(1)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(order, ['search:1', 'ad:1', 'search:2', 'ad:2'])
+        self.assertEqual(scans, ['search', 'search'])
+        self.assertEqual(self.parser.http.request.call_count, 2)
+        self.assertEqual([call.args[0] for call in self.db.finish_ad_refresh.call_args_list], [1, 2])
+        self.assertIsNone(select_due(60))
+        self.assertTrue(all(row['refreshed_at'] for row in self.db.list_ads('search')))
+        self.assertEqual(self.parser.throttle._queue, [])
 
     def test_each_ad_has_persistent_deadline_not_reset_by_catalog(self):
         with patch('db_service.time.time', return_value=130):

@@ -1,6 +1,9 @@
 import hashlib
+import ssl
+from urllib.parse import urlsplit
 
 import requests
+import urllib3
 from loguru import logger
 
 from integrations.notifications.base import Notifier
@@ -57,11 +60,34 @@ class TelegramNotifier(Notifier):
         except requests.HTTPError as err:
             resp = getattr(err, "response", None)
             if resp is not None and resp.status_code == 400:
-                logger.info("[notify] sendPhoto URL отклонён (400), пробуем байтами")
-                img = requests.get(photo_url, proxies=self.proxy, timeout=15)
-                img.raise_for_status()
-                self._send_photo_bytes(img.content, caption)
+                logger.info("[notify] sendPhoto вернул 400; пробуем загрузку байтами")
+                self._send_photo_bytes(self._download_photo(photo_url), caption)
                 return
+            raise
+
+    def _download_photo(self, photo_url: str) -> bytes:
+        proxies = {**requests.utils.get_environ_proxies(photo_url), **(self.proxy or {})}
+        selected = requests.utils.select_proxy(photo_url, proxies)
+        if selected:
+            address = urlsplit(selected)
+            route = f'{address.scheme}://{address.hostname}:{address.port}'
+            source = 'proxy_notifier' if self.proxy else 'environment'
+        else:
+            route, source = 'direct', 'direct'
+        logger.debug(
+            '[notify photo] host={}; route={} ({}); requests={}; urllib3={}; TLS={}',
+            urlsplit(photo_url).hostname, route, source, requests.__version__,
+            urllib3.__version__, ssl.OPENSSL_VERSION,
+        )
+        try:
+            img = requests.get(photo_url, proxies=self.proxy, timeout=15)
+            img.raise_for_status()
+            logger.debug('[notify photo] HTTP {}; content-type={}; bytes={}',
+                         img.status_code, img.headers.get('content-type', ''), len(img.content))
+            return img.content
+        except requests.RequestException as error:
+            logger.warning('[notify photo] host={}; route={} ({}); error={}',
+                           urlsplit(photo_url).hostname, route, source, type(error).__name__)
             raise
 
     def _send_photo_bytes(self, image_bytes: bytes, caption: str) -> None:

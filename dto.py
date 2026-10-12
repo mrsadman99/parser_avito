@@ -127,7 +127,7 @@ class AvitoConfig:
     count: int = 1
     debug_mode: int = 0
     detached_mode: bool = False  # true — фоновые процессы вместо tmux (parser/api/web)
-    pause_general: int = 60
+    pause_general: float = 60.0  # общий перерыв между раундами всех поисковых ссылок, сек
     ad_refresh_interval: float = 3600.0  # сек. от последней проверки каждого объявления; 0 — отключить
     min_delay: float = 1.0      # мин. задержка между запросами к Avito, сек
     max_delay: float = 3.0      # макс. задержка между запросами к Avito, сек
@@ -147,6 +147,10 @@ class AvitoConfig:
     open_full_ad: bool = False
 
     def __post_init__(self):
+        if (isinstance(self.pause_general, bool)
+                or not isinstance(self.pause_general, (int, float))
+                or not math.isfinite(self.pause_general) or self.pause_general < 0):
+            raise ValueError("pause_general должен быть конечным числом >= 0")
         if (isinstance(self.ad_refresh_interval, bool)
                 or not isinstance(self.ad_refresh_interval, (int, float))
                 or not math.isfinite(self.ad_refresh_interval) or self.ad_refresh_interval < 0):
