@@ -1,14 +1,10 @@
-import html as html_lib
-import json
 import random
-import re
 import threading
 import multiprocessing
 import time
 from contextlib import ExitStack
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from bs4 import BeautifulSoup
 from loguru import logger
 from pydantic import ValidationError
 
@@ -21,6 +17,7 @@ from load_config import load_avito_config
 from models import ItemsResponse, Item
 from parser.cookies.factory import build_cookies_provider
 from parser.cancellation import Cancellation, ParseCancelled
+from parser.enrich import add_promotion_to_ads, add_seller_rating, add_seller_to_ads, extract_description
 from parser.export.factory import build_result_storage
 from parser.http.client import HttpClient
 from parser.http.camoufox_client import CamoufoxClient
@@ -29,7 +26,6 @@ from parser.proxies.proxy import ProxyRotationError
 from parser.url_converter import AvitoUrlConverter
 from parser.request_queue import RequestThrottle
 from parser.mobile_detail import parse_mobile_detail
-from parser.jsonutil import digits, find_string
 from utils.parse_phone import ParsePhone
 from utils.own_mobile_proxy import ensure_own_mobile_proxy
 from utils.logging_setup import configure_app_logging
@@ -385,9 +381,9 @@ class AvitoParse:
 
             ads = self._clean_null_ads(ads=ads_models.items)
             logger.info(f"Объявлений перед фильтрацией {len(ads)}")
-            ads = self._add_seller_to_ads(ads=ads)
-            ads = self._add_promotion_to_ads(ads=ads)
-            ads = self._add_seller_rating(ads=ads)
+            ads = add_seller_to_ads(ads)
+            ads = add_promotion_to_ads(ads)
+            ads = add_seller_rating(ads)
             self.db_handler.update_catalog_status(ads)
 
             if not ads:
@@ -547,33 +543,6 @@ class AvitoParse:
             ignore_promotion=ignore_promotion,
         )
 
-    def _add_seller_to_ads(self, ads: list[Item]) -> list[Item]:
-        for ad in ads:
-            if seller_id := self._extract_seller_slug(data=ad):
-                ad.sellerId = seller_id
-        return ads
-
-    @staticmethod
-    def _add_promotion_to_ads(ads: list[Item]) -> list[Item]:
-        for ad in ads:
-            ad.isPromotion = ad.is_promotion()
-        return ads
-
-    @staticmethod
-    def _add_seller_rating(ads: list[Item]) -> list[Item]:
-        """Достаёт рейтинг продавца и количество оценок из каталога (rating.score/summary)."""
-        for ad in ads:
-            rating = getattr(ad, "rating", None)
-            if rating is None:
-                continue
-            if rating.score is not None:
-                ad.seller_rating = float(rating.score)
-            if rating.summary:
-                reviews = digits(rating.summary)
-                if reviews:
-                    ad.seller_reviews = reviews
-        return ads
-
     def open_full_ad(self, ads: list[Item], cancellation: Cancellation | None = None) -> list[Item]:
         """Открывает страницу каждого объявления и подтягивает ПОЛНОЕ описание.
 
@@ -594,7 +563,7 @@ class AvitoParse:
                 cancellation.checkpoint()
                 if not html_code_full_page:
                     continue
-                full_description = self._extract_description(html=html_code_full_page)
+                full_description = extract_description(html_code_full_page)
                 if full_description:
                     ad.description = full_description
                 delay = random.uniform(0.1, 0.9)
@@ -606,40 +575,6 @@ class AvitoParse:
                 continue
         return ads
 
-    @staticmethod
-    def _extract_description(html: str) -> str | None:
-        """Достаёт полное описание со страницы объявления (несколько стратегий)."""
-        soup = BeautifulSoup(html, "html.parser")
-
-        # 1) HTML-маркер блока описания
-        marker = soup.select_one('[data-marker="item-view/item-description"]')
-        if marker:
-            text = marker.get_text("\n", strip=True)
-            if text and len(text) > 50:
-                return text
-
-        # 2) JSON-LD (schema.org) — поле description
-        for script in soup.select('script[type="application/ld+json"]'):
-            try:
-                data = json.loads(script.string or "")
-            except (ValueError, TypeError):
-                continue
-            found = find_string(data, "description", min_len=50)
-            if found:
-                return found
-
-        # 3) mfe-state JSON внутри страницы — рекурсивный поиск description
-        for script in soup.select('script[data-mfe-state="true"]'):
-            try:
-                data = json.loads(html_lib.unescape(script.text))
-            except (ValueError, TypeError):
-                continue
-            found = find_string(data, "description", min_len=50)
-            if found:
-                return found
-
-        return None
-
     def parse_phone(self, ads: list[Item]) -> list[Item]:
         if not self.config.parse_phone or self.config.parse_phone:
             # future feat, not ready yet
@@ -650,13 +585,6 @@ class AvitoParse:
         except Exception as err:
             logger.warning(f"Ошибка при парсинге телефонов: {err}")
             return ads
-
-    @staticmethod
-    def _extract_seller_slug(data):
-        match = re.search(r"/brands/([^/?#]+)", str(data))
-        if match:
-            return match.group(1)
-        return None
 
     def is_viewed(self, ad: Item, source_key: str = "") -> bool:
         """Проверяет, смотрели мы это или нет"""

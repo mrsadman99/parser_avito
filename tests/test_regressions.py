@@ -606,11 +606,11 @@ class RegressionTests(unittest.TestCase):
             return "<html>stale description</html>"
 
         parser.fetch_data = Mock(side_effect=fetch)
-        parser._extract_description = Mock()
-        with self.assertRaises(ParseCancelled):
-            parser.open_full_ad([ad(), ad(2)], cancellation=Cancellation(cancelled.is_set))
-        self.assertEqual(parser.fetch_data.call_count, 1)
-        parser._extract_description.assert_not_called()
+        with patch.object(self.parser_module, "extract_description") as mock_extract:
+            with self.assertRaises(ParseCancelled):
+                parser.open_full_ad([ad(), ad(2)], cancellation=Cancellation(cancelled.is_set))
+            self.assertEqual(parser.fetch_data.call_count, 1)
+            mock_extract.assert_not_called()
 
     def test_ads_require_owner_even_when_both_users_have_same_url(self):
         first, first_headers = self.user("first")
