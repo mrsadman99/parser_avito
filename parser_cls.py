@@ -29,6 +29,7 @@ from parser.proxies.proxy import ProxyRotationError
 from parser.url_converter import AvitoUrlConverter
 from parser.request_queue import RequestThrottle
 from parser.mobile_detail import parse_mobile_detail
+from parser.jsonutil import digits, find_string
 from utils.parse_phone import ParsePhone
 from utils.own_mobile_proxy import ensure_own_mobile_proxy
 from utils.logging_setup import configure_app_logging
@@ -557,11 +558,7 @@ class AvitoParse:
     @staticmethod
     def _add_promotion_to_ads(ads: list[Item]) -> list[Item]:
         for ad in ads:
-            ad.isPromotion = any(
-                v.get("title") == "Продвинуто"
-                for step in (ad.iva or {}).get("DateInfoStep", [])
-                for v in step.payload.get("vas", [])
-            )
+            ad.isPromotion = ad.is_promotion()
         return ads
 
     @staticmethod
@@ -574,9 +571,9 @@ class AvitoParse:
             if rating.score is not None:
                 ad.seller_rating = float(rating.score)
             if rating.summary:
-                digits = "".join(ch for ch in str(rating.summary) if ch.isdigit())
-                if digits:
-                    ad.seller_reviews = int(digits)
+                reviews = digits(rating.summary)
+                if reviews:
+                    ad.seller_reviews = reviews
         return ads
 
     def open_full_ad(self, ads: list[Item], cancellation: Cancellation | None = None) -> list[Item]:
@@ -629,7 +626,7 @@ class AvitoParse:
                 data = json.loads(script.string or "")
             except (ValueError, TypeError):
                 continue
-            found = AvitoParse._find_json_value(data, "description", min_len=50)
+            found = find_string(data, "description", min_len=50)
             if found:
                 return found
 
@@ -639,27 +636,10 @@ class AvitoParse:
                 data = json.loads(html_lib.unescape(script.text))
             except (ValueError, TypeError):
                 continue
-            found = AvitoParse._find_json_value(data, "description", min_len=50)
+            found = find_string(data, "description", min_len=50)
             if found:
                 return found
 
-        return None
-
-    @staticmethod
-    def _find_json_value(data, key: str, min_len: int = 0):
-        """Рекурсивно ищет первое строковое значение по ключу в JSON-дереве."""
-        if isinstance(data, dict):
-            for k, v in data.items():
-                if k == key and isinstance(v, str) and len(v) >= min_len:
-                    return v
-                found = AvitoParse._find_json_value(v, key, min_len)
-                if found:
-                    return found
-        elif isinstance(data, list):
-            for item in data:
-                found = AvitoParse._find_json_value(item, key, min_len)
-                if found:
-                    return found
         return None
 
     def parse_phone(self, ads: list[Item]) -> list[Item]:

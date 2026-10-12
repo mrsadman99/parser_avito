@@ -3,22 +3,14 @@ import json
 import re
 from urllib.parse import urlsplit
 
+from parser.jsonutil import to_number
+
 
 REMOVED_CODES = {'item_not_found', 'item_removed', 'item_deleted', 'item_expired', 'item_closed'}
 REMOVED_MESSAGES = {
     'объявление не найдено', 'объявление удалено', 'объявление снято с публикации',
     'объявление больше не доступно', 'объявление снято',
 }
-
-
-def _number(value, floating=False):
-    if isinstance(value, bool) or value is None:
-        return None
-    try:
-        text = str(value).replace('\xa0', '').replace(' ', '').replace(',', '.')
-        return float(text) if floating else int(text)
-    except (TypeError, ValueError):
-        return None
 
 
 def parse_mobile_detail(payload, expected_id):
@@ -33,7 +25,7 @@ def parse_mobile_detail(payload, expected_id):
         if str(code).lower() in REMOVED_CODES or str(message).lower().strip(' .!') in REMOVED_MESSAGES:
             return {'removed': True}
         raise ValueError('API не вернул распознаваемую карточку или явный статус удаления')
-    if _number(mobile.get('id')) != expected_id:
+    if to_number(mobile.get('id')) != expected_id:
         raise ValueError('ID в ответе карточки не совпадает с запрошенным')
     if mobile.get('isRemoved') is True or mobile.get('status') in ('removed', 'deleted', 'expired', 'closed', 'sold'):
         return {'removed': True}
@@ -45,10 +37,10 @@ def parse_mobile_detail(payload, expected_id):
     if not fields.get('title'):
         raise ValueError('В ответе нет названия карточки; старые данные сохранены')
     price = mobile.get('price') or {}
-    value = _number(price.get('value'))
+    value = to_number(price.get('value'))
     if value is not None:
         fields['price'] = value
-    timestamp = _number(mobile.get('time'))
+    timestamp = to_number(mobile.get('time'))
     if timestamp is not None:
         fields['sort_time'] = timestamp * 1000
     seo = mobile.get('seo') or {}
@@ -65,12 +57,12 @@ def parse_mobile_detail(payload, expected_id):
     if isinstance(seller.get('domain'), str):
         fields['seller_id'] = seller['domain']
     rating = seller.get('rating') or {}
-    score = _number(rating.get('scoreFloat', rating.get('score')), floating=True)
+    score = to_number(rating.get('scoreFloat', rating.get('score')), floating=True)
     if score is not None:
         fields['seller_rating'] = score
     reviews = re.search(r'([\d\s\xa0]+)\s*(?:отзыв|оцен)', str(rating.get('text', '')))
     if reviews:
-        fields['seller_reviews'] = _number(reviews[1])
+        fields['seller_reviews'] = to_number(reviews[1])
     images = mobile.get('images')
     if isinstance(images, list):
         fields['images_json'] = json.dumps(images, ensure_ascii=False)
@@ -84,7 +76,7 @@ def parse_mobile_detail(payload, expected_id):
     if isinstance(coords, dict):
         fields['coords_json'] = json.dumps(coords, ensure_ascii=False)
     for key, target in [('categoryId', 'category_id')]:
-        value = _number(mobile.get(key))
+        value = to_number(mobile.get(key))
         if value is not None:
             fields[target] = value
     if 'nativeVideo' in mobile:

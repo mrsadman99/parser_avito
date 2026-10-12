@@ -11,6 +11,8 @@ from typing import Any, Optional
 
 from bs4 import BeautifulSoup
 
+from parser.jsonutil import digits, find_dict_containing, find_dict_with, find_value
+
 # Признаки страницы «объявление удалено/не найдено»
 REMOVED_MARKERS = (
     "объявление не найдено",
@@ -27,20 +29,6 @@ def _clean(value: Any) -> Optional[str]:
         value = value.strip()
         return value or None
     return None
-
-
-def _to_int(value: Any) -> Optional[int]:
-    if value is None:
-        return None
-    digits = re.sub(r"[^\d]", "", str(value))
-    return int(digits) if digits else None
-
-
-def _digits(value: Any) -> Optional[int]:
-    if value is None:
-        return None
-    digits = "".join(ch for ch in str(value) if ch.isdigit())
-    return int(digits) if digits else None
 
 
 def _json_ld_product(soup: BeautifulSoup) -> Optional[dict]:
@@ -73,57 +61,6 @@ def _hydration_data(html: str) -> Optional[Any]:
         return None
 
 
-def _find_value(data: Any, key: str) -> Any:
-    """Первое значение по ключу key (рекурсивно)."""
-    if isinstance(data, dict):
-        for k, v in data.items():
-            if k == key:
-                return v
-            found = _find_value(v, key)
-            if found is not None:
-                return found
-    elif isinstance(data, list):
-        for item in data:
-            found = _find_value(item, key)
-            if found is not None:
-                return found
-    return None
-
-
-def _find_dict_with(data: Any, key: str) -> Optional[dict]:
-    """Первый dict-значение по ключу key (рекурсивно)."""
-    if isinstance(data, dict):
-        for k, v in data.items():
-            if k == key and isinstance(v, dict):
-                return v
-            found = _find_dict_with(v, key)
-            if found is not None:
-                return found
-    elif isinstance(data, list):
-        for item in data:
-            found = _find_dict_with(item, key)
-            if found is not None:
-                return found
-    return None
-
-
-def _find_dict_containing(data: Any, key: str) -> Optional[dict]:
-    """Первый dict, содержащий ключ key (рекурсивно)."""
-    if isinstance(data, dict):
-        if key in data:
-            return data
-        for v in data.values():
-            found = _find_dict_containing(v, key)
-            if found is not None:
-                return found
-    elif isinstance(data, list):
-        for item in data:
-            found = _find_dict_containing(item, key)
-            if found is not None:
-                return found
-    return None
-
-
 def parse_ad_html(html: str) -> dict:
     """Возвращает поля объявления из HTML детальной страницы.
 
@@ -153,9 +90,9 @@ def parse_ad_html(html: str) -> dict:
         result["description"] = _clean(product.get("description"))
         offers = product.get("offers")
         if isinstance(offers, dict):
-            result["price"] = _to_int(offers.get("price"))
+            result["price"] = digits(offers.get("price"))
             result["ad_url"] = _clean(offers.get("url"))
-        result["id"] = _to_int(product.get("sku"))
+        result["id"] = digits(product.get("sku"))
         images = product.get("image")
         if isinstance(images, list) and images:
             result["photo_url"] = _clean(images[0])
@@ -163,34 +100,34 @@ def parse_ad_html(html: str) -> dict:
     # 2) Гидратация (window.__staticRouterHydrationData)
     data = _hydration_data(html)
     if data is not None:
-        full = _find_dict_with(data, "fullAddress")
+        full = find_dict_with(data, "fullAddress")
         if isinstance(full, dict):
             result["city"] = _clean(full.get("locality"))
-        geo = _find_dict_with(data, "geo")
+        geo = find_dict_with(data, "geo")
         if isinstance(geo, dict):
             result["city"] = result["city"] or _clean(geo.get("name"))
             result["address"] = _clean(geo.get("address"))
 
         for key in ("deliveryButtonEnabled", "isDelivery", "isWithDelivery"):
-            value = _find_value(data, key)
+            value = find_value(data, key)
             if value is True:
                 result["has_delivery"] = True
                 break
         if result["has_delivery"] is None:
-            value = _find_value(data, "deliveryButtonEnabled")
+            value = find_value(data, "deliveryButtonEnabled")
             if value is not None:
                 result["has_delivery"] = bool(value)
 
-        rating = _find_dict_containing(data, "scoreFloat")
+        rating = find_dict_containing(data, "scoreFloat")
         if isinstance(rating, dict):
             score = rating.get("scoreFloat")
             if isinstance(score, (int, float)):
                 result["seller_rating"] = float(score)
             reviews = rating.get("useStarsReviewCount")
-            result["seller_reviews"] = reviews if isinstance(reviews, int) else _digits(rating.get("summary"))
+            result["seller_reviews"] = reviews if isinstance(reviews, int) else digits(rating.get("summary"))
 
         # реальное фото из галереи приоритетнее share-картинки из JSON-LD
-        sizes = _find_dict_containing(data, "1280x960")
+        sizes = find_dict_containing(data, "1280x960")
         if isinstance(sizes, dict):
             photo = _clean(sizes.get("1280x960"))
             if photo:
@@ -204,7 +141,7 @@ def parse_ad_html(html: str) -> dict:
     if result["price"] is None:
         marker = soup.select_one('[data-marker="item-view/item-price"]')
         if marker:
-            result["price"] = _digits(marker.get_text())
+            result["price"] = digits(marker.get_text())
     if result["seller_rating"] is None:
         meta = soup.select_one('meta[itemprop="ratingValue"]')
         if meta and meta.get("content"):

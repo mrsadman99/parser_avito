@@ -184,6 +184,14 @@ class Item(BaseModel):
                     return True
         return False
 
+    def is_promotion(self) -> bool:
+        """Признак «Продвинуто» из iva.DateInfoStep.vas."""
+        for step in (self.iva or {}).get("DateInfoStep", []):
+            for vas in (step.payload or {}).get("vas", []):
+                if isinstance(vas, dict) and vas.get("title") == "Продвинуто":
+                    return True
+        return False
+
     def city(self) -> str | None:
         """Город/локация объявления (человекочитаемо)."""
         if self.location and (self.location.name or "").strip():
