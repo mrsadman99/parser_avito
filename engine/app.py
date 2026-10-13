@@ -31,7 +31,7 @@ from engine.response_diagnostics import json_structure
 from engine.catalog_snapshots import extract_catalog, save_catalog_response
 from utils.parse_phone import ParsePhone
 from mobile_proxy.own_mobile_proxy import ensure_own_mobile_proxy
-from utils.logging_setup import configure_app_logging
+from utils.logging_setup import configure_app_logging, log_operation
 from version import VERSION
 from lang import SPFA_PROXY_REQUIRED
 
@@ -165,6 +165,7 @@ class AvitoParse:
             (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
         )
 
+    @log_operation("scan")
     def fetch_api_data(self, api_url: str, page: int, cancellation=None) -> dict | None:
         if self._is_stopped():
             return None
@@ -220,6 +221,7 @@ class AvitoParse:
             f"плохие: {self.bad_request_count}шт"
         )
 
+    @log_operation("scan")
     def _run_scheduler(self):
         """Все подписки проходят один раунд, затем очередь доступна обновлениям."""
         workers = {}
@@ -289,6 +291,7 @@ class AvitoParse:
                 if worker is not None:
                     worker.join()
 
+    @log_operation("scan")
     def _link_cycle(self, source_key: str, target: ParseTarget):
         """Один обход; изменение подписки перезапускает его с первой страницы."""
         while not self._is_stopped():
@@ -327,6 +330,7 @@ class AvitoParse:
                 logger.exception(f"Ошибка обхода {self._query_label(target.url)}: {err}")
                 return target
 
+    @log_operation("scan")
     def _process_link(self, source_url: str, link_cfg, api_url: str, source_key: str | None = None,
                       cancellation: Cancellation | None = None):
         """Один полный обход ссылки: все страницы + фильтрация + сохранение."""
@@ -416,6 +420,7 @@ class AvitoParse:
             f"статус: {status}"
         )
 
+    @log_operation("refresh")
     def _refresh_cycle(self, refresh_allowed=None):
         cancellation = Cancellation(self._is_stopped)
         while not self._is_stopped():
@@ -441,6 +446,7 @@ class AvitoParse:
                 logger.warning(f"Ошибка фонового обновления: {err}")
                 self._sleep_interruptible(3)
 
+    @log_operation("refresh")
     def _refresh_ad(self, ad_id, cancellation):
         """Полный цикл запроса и записи занимает один слот общей очереди."""
         client = self.camoufox or self.http
@@ -487,6 +493,7 @@ class AvitoParse:
             # Даже неудачная проверка не создаёт бесконечный цикл для одного ID.
             self.db_handler.finish_ad_refresh(ad_id)
 
+    @log_operation("other")
     def _notification_cycle(self, stop_event):
         while not stop_event.is_set() and not self._is_stopped():
             try:
@@ -495,6 +502,7 @@ class AvitoParse:
                 logger.warning(f"Ошибка обработки очереди уведомлений: {err}")
             stop_event.wait(3.0)
 
+    @log_operation("other")
     def _deliver_pending_notifications(self, stop_event=None):
         """Доставляет сохранённые объявления, повторяя только неудачные отправки."""
         targets = self.notifier.delivery_targets()

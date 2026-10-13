@@ -20,6 +20,7 @@ loki.process "avito" {
       timestamp = "timestamp",
       level     = "level",
       subsystem = "subsystem",
+      operation = "operation",
     }
   }
   stage.timestamp {
@@ -32,6 +33,7 @@ loki.process "avito" {
     values = {
       level     = "",
       subsystem = "",
+      operation = "",
     }
   }
   stage.label_drop {

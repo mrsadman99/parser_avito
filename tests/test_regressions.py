@@ -154,6 +154,31 @@ class RegressionTests(unittest.TestCase):
                 self.assertIn(counts, summary)
                 self.assertIn('номера неуспешных страниц: ' + pages, summary)
 
+    def test_extra_only_catalog_is_filtered_saved_and_does_not_end_pagination(self):
+        parser = self.parser()
+        parser.config.count = 5
+        cheap = ad(1, 5900).model_dump(mode="json")
+        expensive = ad(2, 40000).model_dump(mode="json")
+        reserved = ad(3, 5000).model_dump(mode="json")
+        reserved["isReserved"] = True
+        second = ad(4, 6000).model_dump(mode="json")
+        parser.fetch_api_data = Mock(side_effect=[
+            {"catalog": {"items": [], "extraBlockItems": [
+                {"type": "header"}, cheap, expensive, reserved,
+            ]}},
+            {"catalog": {"items": [cheap], "extraBlockItems": [cheap, second]}},
+            {"catalog": {"items": [], "extraBlockItems": [{"type": "header"}]}},
+        ])
+        parser._process_link(self.url, LinkConfig(max_price=6500, ignore_reserv=True),
+                             'https://example.invalid', 'extra-blocks')
+        self.assertEqual(parser.fetch_api_data.call_count, 3)
+        saved = [item.id for call in parser.result_storage.save.call_args_list for item in call.args[0]]
+        self.assertEqual(saved, [1, 4])
+        self.assertTrue(self.db.record_exists(1, 5900, 'extra-blocks'))
+        self.assertTrue(self.db.record_exists(4, 6000, 'extra-blocks'))
+        self.assertFalse(self.db.record_exists(2, 40000, 'extra-blocks'))
+        self.assertFalse(self.db.record_exists(3, 5000, 'extra-blocks'))
+
     def start_link_worker(self, parser, key):
         parser.stop_event = threading.Event()
         parser.url_converter = Mock(convert=Mock(return_value="https://example.invalid"))

@@ -8,7 +8,8 @@ from uuid import uuid4
 from loguru import logger
 
 
-def extract_catalog(payload):
+def find_catalog(payload):
+    """Найти исходный каталог, не изменяя сохранённый ответ Avito."""
     if not isinstance(payload, dict):
         return {}
     result = payload.get("result")
@@ -19,7 +20,45 @@ def extract_catalog(payload):
         payload,
     ]
     return next((value for value in candidates
-                 if isinstance(value, dict) and isinstance(value.get("items"), list)), {})
+                 if isinstance(value, dict) and any(isinstance(value.get(key), list)
+                                                   for key in ("items", "extraBlockItems"))), {})
+
+
+def catalog_item_id(item):
+    """ID объявления; заголовки, баннеры и некорректные ID не являются объявлениями."""
+    if not isinstance(item, dict) or item.get("type") not in (None, "item"):
+        return None
+    value = item.get("id")
+    candidates = (value.get("value"), value.get("id")) if isinstance(value, dict) else (value,)
+    for candidate in candidates:
+        if isinstance(candidate, bool):
+            continue
+        if isinstance(candidate, int) and candidate > 0:
+            return candidate
+        if isinstance(candidate, str) and candidate.isascii() and candidate.isdigit():
+            number = int(candidate)
+            if number > 0:
+                return number
+    return None
+
+
+def extract_catalog(payload):
+    """Объединить основную и дополнительную выдачу, сохраняя порядок и уникальные ID."""
+    catalog = find_catalog(payload)
+    if not catalog:
+        return {}
+    items, seen = [], set()
+    for key in ("items", "extraBlockItems"):
+        section = catalog.get(key)
+        if not isinstance(section, list):
+            continue
+        for item in section:
+            item_id = catalog_item_id(item)
+            if item_id is None or item_id in seen:
+                continue
+            seen.add(item_id)
+            items.append({**item, "id": item_id})
+    return {**catalog, "items": items}
 
 
 def save_catalog_response(payload, *, url, page, status_code,
@@ -33,7 +72,7 @@ def save_catalog_response(payload, *, url, page, status_code,
     if not isinstance(status_code, int) or not 200 <= status_code < 300:
         return None
     temporary = None
-    log = logger.bind(log_category="scanning")
+    log = logger.bind(log_category="scanning", operation="scan")
     try:
         now = datetime.now(timezone.utc)
         relative = f"{now:%Y-%m-%d}/{now:%H%M%S%f}_{uuid4().hex}.json"
@@ -51,6 +90,9 @@ def save_catalog_response(payload, *, url, page, status_code,
         items = extract_catalog(payload).get("items")
         count = len(items) if items is not None else None
         ads = sum(isinstance(item, dict) and bool(item.get("id")) for item in items) if items is not None else None
+        raw_catalog = find_catalog(payload)
+        main_items = len(raw_catalog["items"]) if isinstance(raw_catalog.get("items"), list) else None
+        extra_items = len(raw_catalog["extraBlockItems"]) if isinstance(raw_catalog.get("extraBlockItems"), list) else None
         root = payload if isinstance(payload, dict) else {}
         query = parse_qs(urlsplit(url).query)
         counters = {key: root.get(key) if isinstance(root.get(key), (int, float)) else None
@@ -59,12 +101,14 @@ def save_catalog_response(payload, *, url, page, status_code,
             catalog_snapshot=relative, catalog_url=url, catalog_page=page,
             catalog_query=query.get("query", query.get("q", [""]))[0],
             catalog_status=status_code, catalog_items=count, catalog_ads=ads,
+            catalog_main_items=main_items, catalog_extra_items=extra_items,
             catalog_count=counters["count"], catalog_total_count=counters["totalCount"],
             catalog_main_count=counters["mainCount"],
         ).info(
             "JSON выдачи сохранён: query={} | page={} | HTTP={} | items={} | ads={} | "
+            "main_items={} | extra_items={} | "
             "count={} | totalCount={} | mainCount={} | catalog_snapshot={} | URL={}",
-            query.get("query", query.get("q", [""]))[0], page, status_code, count, ads,
+            query.get("query", query.get("q", [""]))[0], page, status_code, count, ads, main_items, extra_items,
             counters["count"], counters["totalCount"], counters["mainCount"], relative, url,
         )
         return destination

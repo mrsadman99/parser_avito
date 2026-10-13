@@ -48,3 +48,16 @@ class CatalogLinksTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'exhausted'):
                 collect_links(client, 'https://www.avito.ru/search', 5, SimpleNamespace())
         client.request.assert_called_once()
+
+    def test_extra_only_pages_continue_and_deduplicate_across_pages(self):
+        client = Mock()
+        client.request.side_effect = [Mock(json=Mock(return_value={"catalog": {
+            "items": [], "extraBlockItems": extra,
+        }})) for extra in ([{"id": 1}], [{"id": 1}, {"id": 2}], [{"type": "header"}])]
+        with patch('scripts.retrieve_ad_links.AvitoUrlConverter') as converter, \
+             patch('scripts.retrieve_ad_links.time.sleep'):
+            converter.return_value.convert.return_value = 'https://www.avito.ru/web/1/js/items'
+            links = collect_links(client, 'https://www.avito.ru/search', 5,
+                                  SimpleNamespace(min_delay=0, max_delay=0))
+        self.assertEqual([link['id'] for link in links], [1, 2])
+        self.assertEqual(client.request.call_count, 3)

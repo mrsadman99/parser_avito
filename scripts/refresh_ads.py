@@ -29,6 +29,7 @@ from persistence.ads import SQLiteDBHandler
 from load_config import load_avito_config
 from engine.detail import parse_ad_html
 from engine.app import AvitoParse
+from utils.logging_setup import log_operation
 
 
 def _report_proxy(config) -> None:
@@ -79,6 +80,7 @@ def _build_fields(parsed: dict, fallback_url: str) -> dict:
     return {key: value for key, value in fields.items() if value is not None}
 
 
+@log_operation("refresh")
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Обновление старых объявлений из detail-страниц"

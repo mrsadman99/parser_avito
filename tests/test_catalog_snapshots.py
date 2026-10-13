@@ -115,3 +115,21 @@ def test_metadata_whitelist_does_not_export_request_secrets(tmp_path):
     assert json.loads(text)["catalog_snapshot"] == "example.json"
     assert "private-cookie" not in text
     assert "private-auth" not in text
+
+
+def test_snapshot_preserves_both_arrays_and_reports_combined_unique_ads(tmp_path):
+    payload = {"catalog": {"items": [{"id": 1}], "extraBlockItems": [
+        {"type": "header"}, {"id": 1}, {"id": 2},
+    ]}}
+    handlers = configure_app_logging(tmp_path)
+    try:
+        path = save_catalog_response(payload, url=URL, page=1, status_code=200,
+                                     directory=tmp_path / "catalog_responses")
+    finally:
+        for handler in handlers:
+            logger.remove(handler)
+    assert json.loads(path.read_text()) == payload
+    event = json.loads((tmp_path / "events.jsonl").read_text())
+    assert event["catalog_main_items"] == 1
+    assert event["catalog_extra_items"] == 3
+    assert event["catalog_items"] == event["catalog_ads"] == 2

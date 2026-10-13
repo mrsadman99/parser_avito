@@ -33,7 +33,8 @@ from engine.http.client import HttpClient
 from engine.http.camoufox_client import CamoufoxClient
 from engine.proxies.proxy_factory import build_proxy
 from engine.url_converter import AvitoUrlConverter
-from engine.catalog_snapshots import save_catalog_response
+from engine.catalog_snapshots import extract_catalog, save_catalog_response
+from utils.logging_setup import log_operation
 from mobile_proxy.own_mobile_proxy import ensure_own_mobile_proxy, proxy_address, start_proxy
 
 
@@ -55,27 +56,12 @@ def extract_item_links(payload):
     """Распознать каталог; рекламные блоки и повторные ID пропустить."""
     if not isinstance(payload, dict):
         raise ValueError("Ответ каталога должен быть JSON-объектом")
-    result = payload.get("result")
-    candidates = [payload.get("catalog"),
-                  result.get("catalog") if isinstance(result, dict) else None,
-                  result, payload]
-    catalog = next((c for c in candidates if isinstance(c, dict)
-                    and isinstance(c.get("items"), list)), None)
-    if catalog is None:
-        raise ValueError("В ответе не найден список items каталога")
-    links, seen = [], set()
+    catalog = extract_catalog(payload)
+    if not catalog:
+        raise ValueError("В ответе не найден список items/extraBlockItems каталога")
+    links = []
     for item in catalog["items"]:
-        if not isinstance(item, dict):
-            continue
-        item_id = item.get("id")
-        if isinstance(item_id, bool) or not isinstance(item_id, (int, str)):
-            continue
-        if not str(item_id).isascii() or not str(item_id).isdigit() or int(item_id) <= 0:
-            continue
-        item_id = int(item_id)
-        if item_id in seen:
-            continue
-        seen.add(item_id)
+        item_id = item["id"]
         path = item.get("urlPath")
         links.append({"id": item_id, "title": item.get("title"),
                       "url": urljoin("https://www.avito.ru", path) if isinstance(path, str) and path else None,
@@ -83,6 +69,7 @@ def extract_item_links(payload):
     return links
 
 
+@log_operation("scan")
 def collect_links(client, source_url, pages, config):
     api_url = AvitoUrlConverter().convert(source_url)
     parts = urlsplit(api_url)

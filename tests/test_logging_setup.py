@@ -1,12 +1,13 @@
 import tempfile
 import unittest
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
 
-from utils.logging_setup import configure_app_logging, log_category
+from utils.logging_setup import configure_app_logging, log_category, log_operation
 from engine.cancellation import Cancellation
 from engine.proxies.rotation import _rotation_attempt
 
@@ -51,7 +52,8 @@ class LoggingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             handlers = configure_app_logging(directory)
             try:
-                self.assertEqual(_rotation_attempt(LoggingRotationProxy(), Cancellation()), (True, None))
+                with logger.contextualize(operation="refresh"):
+                    self.assertEqual(_rotation_attempt(LoggingRotationProxy(), Cancellation()), (True, None))
             finally:
                 for handler in handlers:
                     logger.remove(handler)
@@ -60,6 +62,50 @@ class LoggingTests(unittest.TestCase):
                 self.assertIn("CHILD_ROTATION <redacted-token>", content)
                 self.assertNotIn("123456789:", content)
             self.assertNotIn("CHILD_ROTATION", (Path(directory) / "scanning.log").read_text())
+            events = [json.loads(line) for line in (Path(directory) / "events.jsonl").read_text().splitlines()]
+            child = next(event for event in events if "CHILD_ROTATION" in event["message"])
+            self.assertEqual(child["operation"], "refresh")
+
+    def test_operations_are_isolated_between_threads_and_restored_after_exception(self):
+        barrier = threading.Barrier(2)
+
+        @log_operation("other")
+        def nested():
+            logger.info("nested")
+
+        def worker(operation):
+            @log_operation(operation)
+            def run():
+                barrier.wait(timeout=3)
+                logger.bind(log_category="blocking").info(operation + " HTTP")
+                nested()
+                logger.info(operation + " resumed")
+                raise ValueError("finished")
+            try:
+                run()
+            except ValueError:
+                logger.info("outside")
+
+        with tempfile.TemporaryDirectory() as directory:
+            handlers = configure_app_logging(directory)
+            try:
+                threads = [threading.Thread(target=worker, args=(operation,))
+                           for operation in ("scan", "refresh")]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(timeout=5)
+                    self.assertFalse(thread.is_alive())
+            finally:
+                for handler in handlers:
+                    logger.remove(handler)
+            events = [json.loads(line) for line in (Path(directory) / "events.jsonl").read_text().splitlines()]
+            self.assertEqual(len(events), 8)
+            for event in events:
+                expected = event["message"].split()[0]
+                self.assertEqual(event["operation"], expected if expected in {"scan", "refresh"} else "other")
+                if "HTTP" in event["message"]:
+                    self.assertEqual(event["subsystem"], "blocking")
 
     def test_routing_shared_log_and_secret_redaction(self):
         with tempfile.TemporaryDirectory() as directory:

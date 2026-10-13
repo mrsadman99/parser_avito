@@ -1,5 +1,6 @@
 """Общий журнал и отдельные журналы трёх алгоритмов приложения."""
 from pathlib import Path
+from functools import wraps
 import json
 import traceback
 
@@ -7,6 +8,20 @@ from loguru import logger
 
 # Устанавливает общую маскировку секретов также для новых файловых обработчиков.
 import hide_private_data  # noqa: F401
+
+
+def log_operation(operation):
+    """Тег всего вызова, включая вложенные HTTP/БД-логи; изолирован по потокам."""
+    if operation not in {"scan", "refresh", "other"}:
+        raise ValueError(f"Unknown log operation: {operation}")
+
+    def decorate(function):
+        @wraps(function)
+        def wrapped(*args, **kwargs):
+            with logger.contextualize(operation=operation):
+                return function(*args, **kwargs)
+        return wrapped
+    return decorate
 
 
 def log_category(record):
@@ -35,10 +50,12 @@ def log_category(record):
 def json_log_format(record):
     """Одна JSON-строка на событие; только явно выбранные безопасные поля."""
     exception = record["exception"]
+    operation = record["extra"].get("operation", "other")
     event = {
         "timestamp": record["time"].isoformat(),
         "level": record["level"].name.lower(),
         "subsystem": log_category(record) or "general",
+        "operation": operation if operation in ("scan", "refresh", "other") else "other",
         "module": record["name"],
         "function": record["function"],
         "line": record["line"],
@@ -49,6 +66,7 @@ def json_log_format(record):
     # Только известные поля диагностики; произвольный extra не экспортируем.
     for key in ("catalog_snapshot", "catalog_url", "catalog_page", "catalog_query",
                 "catalog_status", "catalog_items", "catalog_ads", "catalog_count",
+                "catalog_main_items", "catalog_extra_items",
                 "catalog_total_count", "catalog_main_count"):
         if key in record["extra"]:
             value = record["extra"][key]
