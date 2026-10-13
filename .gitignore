@@ -79,3 +79,4 @@ database.db
 # Веб-приложение (React)
 web-server/node_modules/
 web-server/dist/
+package-lock.json
