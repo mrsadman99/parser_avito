@@ -37,4 +37,5 @@ def test_parser_tags_catalog_and_detail_requests_and_their_failures(tmp_path):
     assert [event["operation"] for event in events] == ["scan", "scan", "refresh", "refresh", "other"]
     assert events[0]["subsystem"] == events[2]["subsystem"] == "blocking"
     assert parser.bad_request_count == 2
-    parser.db_handler.finish_ad_refresh.assert_called_once_with(123)
+    parser.db_handler.finish_ad_refresh.assert_not_called()
+    parser.db_handler.update_ad.assert_not_called()

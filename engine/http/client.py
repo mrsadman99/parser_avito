@@ -62,6 +62,7 @@ class HttpClient(BaseHttpClient):
         session.headers.update(headers)
         if self.cookies:
             session.cookies.update(self.cookies.get())
+        self._cookies_revision = getattr(self.cookies, 'revision', None)
 
         proxy = self.proxy.get_httpx_proxy()
         if proxy:
@@ -73,6 +74,9 @@ class HttpClient(BaseHttpClient):
         return session
 
     def _send(self, method, url, *, cancellation, **kwargs):
+        # Отмена могла произойти после ответа SPFA, но до сброса сессии в _rotate.
+        if getattr(self.cookies, 'revision', None) != self._cookies_revision:
+            self._reset()
         return self._client.request(method, url, timeout=kwargs.pop('timeout', self.timeout), **kwargs)
 
     def _get_ip_response(self, service, proxies):

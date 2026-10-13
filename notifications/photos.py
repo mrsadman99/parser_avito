@@ -1,5 +1,6 @@
 """Загрузка фотографий через прокси Avito, отдельно от API мессенджеров."""
 import ssl
+from contextlib import nullcontext
 from urllib.parse import urlsplit
 
 import requests
@@ -7,7 +8,12 @@ import urllib3
 from loguru import logger
 
 
-def download_photo(photo_url: str, proxies: dict | None = None) -> bytes:
+def download_photo(photo_url: str, proxies: dict | None = None, *, guard=None) -> bytes:
+    with guard() if guard else nullcontext():
+        return _download_photo(photo_url, proxies)
+
+
+def _download_photo(photo_url: str, proxies: dict | None = None) -> bytes:
     selected = requests.utils.select_proxy(photo_url, proxies or {})
     if selected:
         address = urlsplit(selected)

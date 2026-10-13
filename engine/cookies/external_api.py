@@ -1,5 +1,8 @@
 import json
 import time
+import threading
+from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 
 import requests
@@ -8,8 +11,17 @@ from loguru import logger
 from engine.cookies.base import CookiesProvider, UnblockState
 from engine.proxies.proxy import ProxyRotationError
 from proxy_helpers import build_proxies_dict
+from engine.cancellation import cancellable_lock
 
 API_URL = "https://spfa.pro/api"
+
+
+def _recovery_locked(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self._recovery_lock:
+            return method(self, *args, **kwargs)
+    return wrapped
 
 
 class ExternalApiCookiesProvider(CookiesProvider):
@@ -22,6 +34,8 @@ class ExternalApiCookiesProvider(CookiesProvider):
         proxy=None,
     ):
         self.api_key = config.cookies_api_key
+        self._recovery_lock = threading.RLock()
+        self.revision = 0
         self.proxy_handler = proxy
         own_proxy_string = (
             proxy.get_spfa_proxy_string() if proxy is not None else None
@@ -88,10 +102,6 @@ class ExternalApiCookiesProvider(CookiesProvider):
         if code is None:
             return
 
-        if 200 <= code < 300 and self.unblock_started_at is not None:
-            self.unblock_started_at = None
-            logger.info(f"✅ Avito ответил успешно; ожидание разблокировки завершено | id={self.last_id}")
-
         response_cookies = dict(response.cookies)
         if response_cookies:
             if self.last_cookies is None:
@@ -117,9 +127,72 @@ class ExternalApiCookiesProvider(CookiesProvider):
                             self.unblock_check_interval)
 
     def expire_unblock(self) -> None:
-        self.unblock_started_at = None
-        logger.warning('Истёк срок ожидания SPFA; текущий запрос завершается без новой смены IP')
+        # Следующее задание также должно дождаться cookies, а не отправлять старые.
+        self.unblock_started_at = time.monotonic()
+        logger.warning('Истёк срок ожидания SPFA; запрос завершается, доступ к Avito остаётся приостановленным')
 
+    def _request_unblock(self, timeout):
+        return requests.post(
+            f"{API_URL}/unblock/",
+            json={"id": self.last_id, "api_key": self.api_key, "proxy": self.proxy},
+            headers=self.headers, timeout=timeout, proxies=self.request_proxies,
+        )
+
+    def _accept_unblock(self, response) -> bool:
+        if response.status_code != 200:
+            return False
+        try:
+            payload = response.json()
+            data = payload.get('results') if isinstance(payload, dict) else None
+            cookies = data.get('cookies') if isinstance(data, dict) else None
+            valid = (payload.get('success') is True and isinstance(data, dict)
+                     and str(data.get('id')) == str(self.last_id)
+                     and isinstance(cookies, dict) and bool(cookies)
+                     and all(isinstance(k, str) and isinstance(v, str) for k, v in cookies.items()))
+        except (ValueError, AttributeError):
+            valid = False
+        if not valid:
+            logger.warning('SPFA: ответ не подтверждает получение актуальных cookies; Avito ожидает')
+            return False
+        previous = self.last_cookies
+        previous_history = self.status_history
+        self.last_cookies = dict(cookies)
+        self.status_history = []
+        try:
+            self._save_to_disk()
+        except Exception:
+            self.last_cookies = previous
+            self.status_history = previous_history
+            raise
+        self.unblock_started_at = None
+        self.revision += 1
+        logger.info('✅ SPFA: актуальные cookies получены; запросы к Avito разрешены | id={}', self.last_id)
+        return True
+
+    @contextmanager
+    def photo_access(self, cancellation):
+        """CDN ждёт восстановления; уже начатая загрузка завершается до SPFA."""
+        while True:
+            with cancellable_lock(self._recovery_lock, cancellation):
+                if self.unblock_started_at is None:
+                    yield
+                    return
+            cancellation.wait(0.1)
+
+    @_recovery_locked
+    def poll_unblock(self, timeout: float) -> bool:
+        try:
+            response = self._request_unblock(timeout)
+        except requests.RequestException as err:
+            logger.warning('SPFA: ошибка ожидания {}; запросы к Avito приостановлены', type(err).__name__)
+            return False
+        logger.debug('SPFA: проверка готовности cookies, HTTP {}', response.status_code)
+        if response.status_code in (404, 410):
+            self._get_new_cookies()
+            return True
+        return self._accept_unblock(response)
+
+    @_recovery_locked
     def handle_block(self):
         """
         Пытаемся разблокировать cookies.
@@ -135,6 +208,9 @@ class ExternalApiCookiesProvider(CookiesProvider):
                 logger.info('SPFA уже выполняет разблокировку; IP и cookies сохраняются')
                 return
             self.expire_unblock()
+            return
+
+        self.unblock_started_at = time.monotonic()
 
         # ---- Нет cookies вообще ----
         if not self.last_id:
@@ -162,17 +238,7 @@ class ExternalApiCookiesProvider(CookiesProvider):
         logger.info(f"🔓 Пытаемся разблокировать cookies | id={self.last_id}")
 
         try:
-            res = requests.post(
-                f"{API_URL}/unblock/",
-                json={
-                    "id": self.last_id,
-                    "api_key": self.api_key,
-                    "proxy": self.proxy
-                },
-                headers=self.headers,
-                timeout=30,
-                proxies=self.request_proxies,
-            )
+            res = self._request_unblock(self.UNBLOCK_TIMEOUT)
         except requests.RequestException as e:
             logger.error(
                 f"❌ Ошибка при запросе к API разблокировки | id={self.last_id} | {e}"
@@ -180,15 +246,16 @@ class ExternalApiCookiesProvider(CookiesProvider):
             self._get_new_cookies()
             return
 
-        # ---- Сервер принял задачу ----
+        if self._accept_unblock(res):
+            return
+
+        # Без актуальных cookies запросы Avito остаются приостановленными.
         if res.status_code in (200, 202):
-            self.unblock_started_at = time.monotonic()
-            logger.info(f"⏳ Разблокировка запущена | id={self.last_id}")
+            logger.info(f"⏳ Ожидаем актуальные cookies SPFA | id={self.last_id}")
             return
 
         # ---- Уже в процессе ----
         if res.status_code == 409:
-            self.unblock_started_at = time.monotonic()
             logger.info(f"⏳ Разблокировка уже выполняется | id={self.last_id}")
             return
 
@@ -216,9 +283,9 @@ class ExternalApiCookiesProvider(CookiesProvider):
 
         # ---- Только здесь можно покупать новые ----
         logger.warning(f"➡️ Покупаем новые cookies вместо id={self.last_id}")
-        self.unblock_started_at = None
         self._get_new_cookies()
 
+    @_recovery_locked
     def _get_new_cookies(self) -> dict:
         logger.info("🛒 Запрашиваем покупку новых cookies у сервиса")
 
@@ -231,7 +298,7 @@ class ExternalApiCookiesProvider(CookiesProvider):
                     "proxy": self.proxy
                 },
                 headers=self.headers,
-                timeout=30,
+                timeout=self.UNBLOCK_TIMEOUT,
                 proxies=self.request_proxies,
             )
         except requests.RequestException as e:
@@ -263,7 +330,7 @@ class ExternalApiCookiesProvider(CookiesProvider):
         # ---- Успешный ответ ----
         try:
             payload = res.json()
-            if not payload.get("success"):
+            if not isinstance(payload, dict) or payload.get("success") is not True:
                 self._handle_purchase_failure()
                 raise RuntimeError("Сервис cookies вернул success=false")
             data = payload.get("results", {})
@@ -272,35 +339,42 @@ class ExternalApiCookiesProvider(CookiesProvider):
             self._handle_purchase_failure()
             raise
 
-        self.last_id = data.get("id")
-        self.last_cookies = data.get("cookies")
-        self.fingerprint = data.get("fingerprint")
-        self.mobile = data.get("mobile")
+        if not isinstance(data, dict):
+            raise RuntimeError("Сервер вернул неполные данные cookies")
+        new_id = data.get("id")
+        new_cookies = data.get("cookies")
+        fingerprint = data.get("fingerprint")
 
         fingerprint_headers = (
-            self.fingerprint.get("headers", {})
-            if isinstance(self.fingerprint, dict)
+            fingerprint.get("headers", {})
+            if isinstance(fingerprint, dict)
             else {}
         )
-        self.user_agent = data.get("user_agent") or fingerprint_headers.get("user-agent")
+        user_agent = data.get("user_agent") or fingerprint_headers.get("user-agent")
 
         if (
-            not self.last_id
-            or not isinstance(self.last_cookies, dict)
-            or not self.last_cookies
-            or not self.user_agent
-            or not isinstance(self.fingerprint, dict)
-            or not self.fingerprint.get("impersonate")
+            not new_id
+            or not isinstance(new_cookies, dict)
+            or not new_cookies
+            or not user_agent
+            or not isinstance(fingerprint, dict)
+            or not fingerprint.get("impersonate")
             or not isinstance(fingerprint_headers, dict)
             or not fingerprint_headers
         ):
-            logger.error(f"❌ Ответ сервера без cookies | данные={data}")
+            logger.error("❌ Ответ сервера без полного набора cookies/fingerprint")
             self._handle_purchase_failure()
             raise RuntimeError("Сервер вернул неполные данные cookies")
 
+        self.last_id = new_id
+        self.last_cookies = new_cookies
+        self.fingerprint = fingerprint
+        self.mobile = data.get("mobile")
+        self.user_agent = user_agent
         self.last_purchase_at = time.time()  # новое: сохраняем дату и время покупки
         self.status_history.clear()  # сбрасываем историю последних кодов после покупки
         self.unblock_started_at = None  # ожидание относилось к предыдущему набору cookies
+        self.revision += 1
 
         logger.info(f"✅ Cookies успешно получены | id={self.last_id}")
 

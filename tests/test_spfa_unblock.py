@@ -1,4 +1,5 @@
 import unittest
+import threading
 from unittest.mock import Mock, patch
 
 from engine.cookies.external_api import ExternalApiCookiesProvider
@@ -7,6 +8,8 @@ from engine.cookies.external_api import ExternalApiCookiesProvider
 class SpfaUnblockTests(unittest.TestCase):
     def provider(self):
         provider = ExternalApiCookiesProvider.__new__(ExternalApiCookiesProvider)
+        provider._recovery_lock = threading.RLock()
+        provider.revision = 0
         provider.last_id = 'test-cookie-id'
         provider.last_cookies = {'old': 'cookie'}
         provider.status_history = [429]
@@ -16,12 +19,12 @@ class SpfaUnblockTests(unittest.TestCase):
         provider._save_to_disk = Mock()
         return provider
 
-    def test_success_clears_timer_and_preserves_cookie_updates(self):
+    def test_avito_response_cannot_confirm_spfa_completion(self):
         for status in (200, 204, 206):
             with self.subTest(status=status):
                 provider = self.provider()
                 provider.update(Mock(status_code=status, cookies={'fresh': 'value'}))
-                self.assertIsNone(provider.unblock_started_at)
+                self.assertEqual(provider.unblock_started_at, 100)
                 self.assertEqual(provider.last_cookies, {'old': 'cookie', 'fresh': 'value'})
                 self.assertEqual(provider.status_history, [429, status])
                 provider._save_to_disk.assert_called_once()
@@ -42,6 +45,7 @@ class SpfaUnblockTests(unittest.TestCase):
         provider.api_key = 'unused'
         provider.proxy = 'unused'
         provider.request_proxies = None
+        provider.unblock_started_at = None
         provider.update(Mock(status_code=200, cookies={}))
         provider.update(Mock(status_code=429, cookies={}))
         with patch('engine.cookies.external_api.time.monotonic', return_value=1000), \

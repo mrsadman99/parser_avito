@@ -8,7 +8,7 @@
     — точно как в upstream parse_views (из `ad.urlPath`);
   * обновляет поля в таблице viewed: price, title, description, ad_url,
     photo_url, has_delivery, city, seller_rating, seller_reviews и дату
-    парсинга (scanned_at);
+    обновления (refreshed_at);
   * если объявление удалено/не найдено — удаляет запись из БД.
 
 Запуск:
@@ -62,7 +62,7 @@ def _parse_views_url(url: str) -> str:
 
 
 def _build_fields(parsed: dict, fallback_url: str) -> dict:
-    """Поля для записи в БД (None не перезаписываем; scanned_at — всегда)."""
+    """Поля для записи в БД (None не перезаписываем; refreshed_at — всегда)."""
     fields = {
         "title": parsed.get("title"),
         "description": parsed.get("description"),
@@ -72,7 +72,7 @@ def _build_fields(parsed: dict, fallback_url: str) -> dict:
         "city": parsed.get("city"),
         "seller_rating": parsed.get("seller_rating"),
         "seller_reviews": parsed.get("seller_reviews"),
-        "scanned_at": _now_iso(),
+        "refreshed_at": _now_iso(),
     }
     has_delivery = parsed.get("has_delivery")
     if has_delivery is not None:
@@ -150,7 +150,7 @@ def main(argv=None):
             + (" (dry-run)" if args.dry_run else "")
         )
         if not args.dry_run:
-            db.update_ad(ad_id, fields)
+            db.update_ad(ad_id, fields, mark_refreshed=True)
 
     print()
     print(f"Итог: обновлено {updated}, удалено {removed}, пропущено {skipped}"

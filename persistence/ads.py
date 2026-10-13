@@ -360,8 +360,12 @@ class SQLiteDBHandler:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def update_ad(self, ad_id, fields: dict) -> int:
-        """Обновляет поля объявления (все строки с этим id); чужие колонки игнорирует."""
+    def update_ad(self, ad_id, fields: dict, *, mark_refreshed: bool = False) -> int:
+        """Обновляет все строки ID; успешную проверку фиксирует в той же транзакции."""
+        if mark_refreshed:
+            timestamp = now_iso()
+            fields = {key: value for key, value in fields.items() if key != "scanned_at"}
+            fields["refreshed_at"] = timestamp
         cols = [col for col in fields if col in self._REFRESH_FIELDS]
         if not cols:
             return 0
@@ -371,6 +375,9 @@ class SQLiteDBHandler:
             cursor = conn.execute(
                 f"UPDATE OR REPLACE viewed SET {assignments} WHERE id = ?", values + [ad_id]
             )
+            if mark_refreshed and cursor.rowcount:
+                conn.execute("UPDATE ad_refresh_state SET last_attempt = ? WHERE ad_id = ?",
+                             (time.time(), ad_id))
             conn.commit()
             return cursor.rowcount
 

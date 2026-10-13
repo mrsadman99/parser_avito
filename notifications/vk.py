@@ -11,11 +11,12 @@ from proxy_helpers import build_proxies_dict
 
 
 class VKNotifier(Notifier):
-    def __init__(self, vk_token: str, user_id: str | int, proxy: str = None, *, photo_proxy: str = None):
+    def __init__(self, vk_token: str, user_id: str | int, proxy: str = None, *, photo_proxy: str = None, photo_guard=None):
         self.vk_token = vk_token
         self.user_id = user_id
         self.proxy = build_proxies_dict(proxy)
         self.photo_proxy = build_proxies_dict(photo_proxy)
+        self.photo_guard = photo_guard
         self.delivery_key = "vk:" + hashlib.sha256(
             str(user_id).encode()
         ).hexdigest()
@@ -107,7 +108,7 @@ class VKNotifier(Notifier):
 
             upload_url = upload_server_response["response"]["upload_url"]
 
-            photo_data = download_photo(photo_url, self.photo_proxy)
+            photo_data = download_photo(photo_url, self.photo_proxy, guard=self.photo_guard)
             upload_response = requests.post(
                 upload_url,
                 files={"photo": ("photo.jpg", photo_data, "image/jpeg")},

@@ -24,7 +24,7 @@ const EMPTY = { url: '', min_price: '', max_price: '', white_list: [], black_lis
 
 const SORT_FIELDS = {
   price: { label: 'Цена', key: (a) => a.price ?? 0 },
-  scanned_at: { label: 'Время парсинга', key: (a) => a.scanned_at ?? '' },
+  refreshed_at: { label: 'Обновлено', key: (a) => a.refreshed_at ?? '' },
   sort_time: { label: 'Публикация', key: (a) => a.sort_time ?? 0 },
   seller_reviews: { label: 'Оценок', key: (a) => a.seller_reviews ?? 0 },
   seller_rating: { label: 'Рейтинг', key: (a) => a.seller_rating ?? 0 },
@@ -333,7 +333,7 @@ export default function App() {
   const [selectedLink, setSelectedLink] = useState(null)
   const [ads, setAds] = useState([])
   const [adsFilters, setAdsFilters] = useState(ADS_FILTERS_EMPTY)
-  const [sortKey, setSortKey] = useState('scanned_at')
+  const [sortKey, setSortKey] = useState('refreshed_at')
   const [sortDesc, setSortDesc] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
   const [form, setForm] = useState(EMPTY)
@@ -560,8 +560,7 @@ export default function App() {
                     <th className="sortable" onClick={() => toggleSort('has_delivery')}>Доставка{arrow('has_delivery')}</th>
                     <th className="sortable" onClick={() => toggleSort('city')}>Расположение{arrow('city')}</th>
                     <th>Ссылка</th>
-                    <th className="sortable" onClick={() => toggleSort('scanned_at')}>Время парсинга{arrow('scanned_at')}</th>
-                    <th>Обновлено</th>
+                    <th className="sortable" onClick={() => toggleSort('refreshed_at')}>Обновлено{arrow('refreshed_at')}</th>
                     <th className="sortable" onClick={() => toggleSort('sort_time')}>Публикация{arrow('sort_time')}</th>
                     <th className="sortable" onClick={() => toggleSort('seller_rating')}>Рейтинг{arrow('seller_rating')}</th>
                     <th className="sortable" onClick={() => toggleSort('seller_reviews')}>Оценок{arrow('seller_reviews')}</th>
@@ -576,7 +575,6 @@ export default function App() {
                       <td>{ad.has_delivery ? 'Да' : '—'}</td>
                       <td>{ad.city || '—'}</td>
                       <td><a href={ad.ad_url} target="_blank" rel="noreferrer">открыть</a></td>
-                      <td>{fmtScan(ad.scanned_at)}</td>
                       <td>{ad.refreshed_at ? fmtScan(ad.refreshed_at) : '—'}</td>
                       <td>{fmtMs(ad.sort_time)}</td>
                       <td>{ad.seller_rating ?? ''}</td>

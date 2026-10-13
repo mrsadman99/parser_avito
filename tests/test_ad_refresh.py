@@ -1,4 +1,5 @@
 """Фоновые обновления: очередь, индивидуальные сроки и сохранность базы при ошибках."""
+import sqlite3
 import tempfile
 import threading
 import time
@@ -15,6 +16,7 @@ from engine.mobile_detail import parse_mobile_detail
 from engine.request_queue import RequestThrottle
 from engine.proxies.proxy import ProxyRotationError
 from engine.http.client import HttpClient
+from engine.http.base import UnblockTimeoutError
 from engine.app import AvitoParse
 
 
@@ -101,6 +103,10 @@ class RefreshTests(unittest.TestCase):
         self.parser._fatal_error = None
         self.parser.throttle = RequestThrottle(0, 0)
 
+    def last_attempt(self):
+        with sqlite3.connect(self.db.db_name) as conn:
+            return conn.execute('SELECT last_attempt FROM ad_refresh_state WHERE ad_id = 1').fetchone()[0]
+
     def test_refresh_crossing_round_boundary_is_not_repeated(self):
         """Настоящие очередь, обновление и SQLite; подменяется только сеть."""
         self.db.add_record_from_page([item(2)], 'search', 'one')
@@ -138,7 +144,7 @@ class RefreshTests(unittest.TestCase):
             return result
 
         self.db.next_ad_for_refresh = next_due
-        self.db.finish_ad_refresh = Mock(wraps=self.db.finish_ad_refresh)
+        self.db.update_ad = Mock(wraps=self.db.update_ad)
         self.parser.http.request.side_effect = request
         self.parser._process_link = process
         worker = threading.Thread(target=self.parser._run_scheduler, daemon=True)
@@ -161,7 +167,7 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(order, ['search:1', 'ad:1', 'search:2', 'ad:2'])
         self.assertEqual(scans, ['search', 'search'])
         self.assertEqual(self.parser.http.request.call_count, 2)
-        self.assertEqual([call.args[0] for call in self.db.finish_ad_refresh.call_args_list], [1, 2])
+        self.assertEqual([call.args[0] for call in self.db.update_ad.call_args_list], [1, 2])
         self.assertIsNone(select_due(60))
         self.assertTrue(all(row['refreshed_at'] for row in self.db.list_ads('search')))
         self.assertEqual(self.parser.throttle._queue, [])
@@ -179,11 +185,14 @@ class RefreshTests(unittest.TestCase):
         reopened = SQLiteDBHandler(self.db.db_name)
         self.assertEqual(reopened.next_ad_for_refresh(60, now=190), 2)
 
-    def test_success_updates_all_subscriptions_without_changing_scan_time(self):
+    def test_success_updates_all_subscriptions_and_timestamps(self):
         self.db.add_record_from_page([item()], 'search', 'two')
         old_scan = self.db.list_ads('search')[0]['scanned_at']
+        new_scan = '2030-01-02T03:04:05+00:00'
         self.parser.http.request.return_value = Mock(status_code=200, json=lambda: payload())
-        self.parser._refresh_ad(1, Cancellation())
+        with patch('persistence.ads.now_iso', return_value=new_scan), \
+             patch('persistence.ads.time.time', return_value=200):
+            self.parser._refresh_ad(1, Cancellation())
         rows = self.db.list_ads('search')
         self.assertEqual(len(rows), 2)
         for row in rows:
@@ -193,8 +202,11 @@ class RefreshTests(unittest.TestCase):
             self.assertEqual(row['seller_reviews'], 58)
             self.assertEqual(row['photo_url'], 'large')
             self.assertEqual(row['is_reserved'], 0)
-            self.assertTrue(row['refreshed_at'])
+            self.assertEqual(row['refreshed_at'], new_scan)
             self.assertEqual(row['scanned_at'], old_scan)
+        self.assertEqual(self.last_attempt(), 200)
+        self.assertIsNone(self.db.next_ad_for_refresh(60, now=259))
+        self.assertEqual(self.db.next_ad_for_refresh(60, now=260), 1)
         self.parser.http.request.assert_called_once()
 
     def test_unknown_reservation_preserves_previous_status(self):
@@ -219,19 +231,53 @@ class RefreshTests(unittest.TestCase):
         self.assertIsNone(self.db.next_ad_for_refresh(1, now=time.time()))
 
     def test_bad_json_generic_404_wrong_id_and_network_error_preserve_ad(self):
+        old_rows = self.db.list_ads('search')
         for response in [Mock(status_code=404, json=lambda: {}),
                          Mock(status_code=200, json=Mock(side_effect=ValueError('HTML'))),
                          Mock(status_code=200, json=lambda: payload(999))]:
             self.parser.http.request.return_value = response
             with self.assertRaises(ValueError):
                 self.parser._refresh_ad(1, Cancellation())
-            self.assertEqual(self.db.list_ads('search')[0]['price'], 500)
+            self.assertEqual(self.db.list_ads('search'), old_rows)
+            self.assertEqual(self.last_attempt(), 100)
         self.parser.http.request.side_effect = RuntimeError('attempts exhausted')
         with patch('persistence.ads.time.time', return_value=200):
             with self.assertRaises(RuntimeError):
                 self.parser._refresh_ad(1, Cancellation())
-        self.assertIsNone(self.db.next_ad_for_refresh(60, now=259))
-        self.assertEqual(self.db.next_ad_for_refresh(60, now=260), 1)
+        self.assertEqual(self.last_attempt(), 100)
+        self.assertEqual(self.db.list_ads('search'), old_rows)
+        self.assertEqual(self.db.next_ad_for_refresh(60, now=200), 1)
+
+    def test_timeout_and_cancellation_keep_timestamps_and_allow_retry(self):
+        old_rows = self.db.list_ads('search')
+        for error in (UnblockTimeoutError('SPFA timeout'), ParseCancelled()):
+            with self.subTest(error=type(error).__name__):
+                self.parser.http.request.side_effect = error
+                with self.assertRaises(type(error)):
+                    self.parser._refresh_ad(1, Cancellation())
+                self.assertEqual(self.last_attempt(), 100)
+                self.assertEqual(self.db.list_ads('search'), old_rows)
+                self.assertEqual(self.db.next_ad_for_refresh(60, now=200), 1)
+        self.parser.http.request.side_effect = None
+        self.parser.http.request.return_value = Mock(status_code=200, json=lambda: payload())
+        with patch('persistence.ads.time.time', return_value=200):
+            self.parser._refresh_ad(1, Cancellation())
+        self.assertEqual(self.last_attempt(), 200)
+        self.assertIsNone(self.db.next_ad_for_refresh(60, now=200))
+
+    def test_database_failure_rolls_back_fields_and_all_timestamps(self):
+        old_rows = self.db.list_ads('search')
+        # Ошибка при записи срока уже после UPDATE полей должна откатить всё.
+        with sqlite3.connect(self.db.db_name) as conn:
+            conn.execute('''CREATE TRIGGER fail_refresh BEFORE UPDATE ON ad_refresh_state
+                BEGIN SELECT RAISE(ABORT, 'test write failure'); END''')
+        self.parser.http.request.return_value = Mock(status_code=200, json=lambda: payload())
+        with self.assertRaisesRegex(sqlite3.IntegrityError, 'test write failure'):
+            self.parser._refresh_ad(1, Cancellation())
+        self.assertEqual(self.db.list_ads('search'), old_rows)
+        self.assertEqual(self.last_attempt(), 100)
+        self.assertEqual(self.db.next_ad_for_refresh(60, now=200), 1)
+        self.assertEqual(self.parser.good_request_count, 0)
 
     def test_rotation_failure_stops_parser(self):
         failure = ProxyRotationError('failed')
@@ -240,6 +286,7 @@ class RefreshTests(unittest.TestCase):
         self.assertIs(self.parser._fatal_error, failure)
         self.assertTrue(self.parser._shutdown.is_set())
         self.assertEqual(len(self.db.list_ads('search')), 1)
+        self.assertEqual(self.last_attempt(), 100)
 
     def test_unexpected_card_logs_only_schema_and_preserves_existing_data(self):
         self.parser.http.request.return_value = Mock(status_code=200, json=lambda: {

@@ -51,7 +51,11 @@ class AvitoParse:
         self.proxy = build_proxy(self.config)
         self.cookies_provider = build_cookies_provider(config=config, proxy=self.proxy)
         self.db_handler = SQLiteDBHandler()
-        self.notifier = build_notifier(config=config, avito_proxy=self.proxy)
+        photo_access = getattr(self.cookies_provider, 'photo_access', None)
+        self.notifier = build_notifier(
+            config=config, avito_proxy=self.proxy,
+            photo_guard=(lambda: photo_access(Cancellation(self._is_stopped))) if photo_access else None,
+        )
         self.result_storage = None
         self.url_converter = AvitoUrlConverter()
         self.stop_event = stop_event
@@ -95,7 +99,10 @@ class AvitoParse:
                     for key, value in (provider_links or {}).items()
                 }
             except Exception as err:
-                logger.warning(f"Не удалось получить ссылки из провайдера: {err}")
+                # The web store emits rate-limited DB_DIAGNOSTIC with the cause
+                # and recovery. Don't flood the journal from every cancellation poll.
+                if not getattr(err, "_db_diagnostic_reported", False):
+                    logger.warning(f"Не удалось получить ссылки из провайдера: {err}")
             # Ошибка чтения БД не означает удаление всех подписок.
             links.update(getattr(self, "_provider_links", {}))
         return links
@@ -479,7 +486,7 @@ class AvitoParse:
                 self.db_handler.delete_ad(ad_id)
                 logger.info(f"Объявление {ad_id} снято, удалено из базы")
             elif response.status_code == 200:
-                self.db_handler.update_ad(ad_id, {**detail['fields'], 'refreshed_at': now_iso()})
+                self.db_handler.update_ad(ad_id, detail['fields'], mark_refreshed=True)
                 logger.info(f"Объявление {ad_id}: данные обновлены")
             else:
                 raise ValueError('HTTP-ошибка без подтверждения удаления объявления')
@@ -489,9 +496,6 @@ class AvitoParse:
         except Exception:
             self.bad_request_count += 1
             raise
-        finally:
-            # Даже неудачная проверка не создаёт бесконечный цикл для одного ID.
-            self.db_handler.finish_ad_refresh(ad_id)
 
     @log_operation("other")
     def _notification_cycle(self, stop_event):

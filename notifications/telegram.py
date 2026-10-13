@@ -10,11 +10,12 @@ from proxy_helpers import build_proxies_dict
 
 
 class TelegramNotifier(Notifier):
-    def __init__(self, bot_token: str, chat_id: str, proxy: str = None, *, photo_proxy: str = None):
+    def __init__(self, bot_token: str, chat_id: str, proxy: str = None, *, photo_proxy: str = None, photo_guard=None):
         self.bot_token = bot_token
         self.chat_id = chat_id
         self.proxy = self.get_proxy(proxy=proxy)
         self.photo_proxy = self.get_proxy(proxy=photo_proxy)
+        self.photo_guard = photo_guard
         self.delivery_key = "telegram:" + hashlib.sha256(
             f"{bot_token.split(':', 1)[0]}:{chat_id}".encode()
         ).hexdigest()
@@ -42,7 +43,7 @@ class TelegramNotifier(Notifier):
         self._send_photo_bytes(self._download_photo(photo_url), caption)
 
     def _download_photo(self, photo_url: str) -> bytes:
-        return download_photo(photo_url, self.photo_proxy)
+        return download_photo(photo_url, self.photo_proxy, guard=self.photo_guard)
 
     def _send_photo_bytes(self, image_bytes: bytes, caption: str) -> None:
         def _send():

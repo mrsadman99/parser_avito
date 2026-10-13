@@ -8,19 +8,38 @@ import hashlib
 import json
 import secrets
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 
 from domain.config import LinkConfig, ParseTarget, web_link_key
 from persistence.ads import now_iso
+from utils.db_diagnostics import web_database_diagnostics
 
 DB_PATH = Path("storage/web.db")
 
 
-def _connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
-    return conn
+@contextmanager
+def _connect(operation="web_store"):
+    path = DB_PATH
+    conn = None
+    stage = "mkdir"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        stage = "connect"
+        conn = sqlite3.connect(path, timeout=10)
+        conn.row_factory = sqlite3.Row
+        stage = "query_or_transaction"
+        with conn:
+            yield conn
+    except (sqlite3.Error, OSError) as error:
+        web_database_diagnostics.failure(path, error, stage=stage, operation=operation)
+        raise
+    else:
+        web_database_diagnostics.success(path, operation=operation)
+    finally:
+        # sqlite3.Connection.__exit__ commits/rolls back, but does not close it.
+        if conn is not None:
+            conn.close()
 
 
 # Колонки, добавляемые в старые БД (миграция)
@@ -302,7 +321,7 @@ def get_link(link_id: int) -> dict | None:
 
 def get_all_links() -> dict[str, ParseTarget]:
     """Подписки по ID: одинаковые URL сохраняют независимые фильтры."""
-    with _connect() as conn:
+    with _connect(operation="get_all_links") as conn:
         rows = conn.execute("SELECT * FROM links ORDER BY id").fetchall()
 
     result: dict[str, ParseTarget] = {}

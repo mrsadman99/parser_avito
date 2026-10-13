@@ -66,37 +66,50 @@ class SpfaWaitTests(unittest.TestCase):
     def request(self):
         return self.client.request('GET', 'https://m.avito.ru/test', cancellation=self.cancellation)
 
-    def test_success_after_ordinary_budget_with_one_ip_rotation(self):
-        self.statuses = [429] * 5 + [200]
+    def success(self):
+        return Mock(status_code=200, json=lambda: {
+            'success': True, 'results': {'id': 'test-id', 'cookies': {'fresh': 'new'}}})
+
+    def test_wait_polls_spfa_only_then_uses_new_cookies(self):
+        self.statuses = [429, 200]
+        self.post.side_effect = [Mock(status_code=202), Mock(status_code=409), self.success()]
         self.assertEqual(self.request().status_code, 200)
-        self.assertEqual(self.sent, [1000, 1030, 1060, 1090, 1120, 1150])
+        self.assertEqual(self.sent, [1000, 1060])
+        self.assertEqual(self.provider.last_cookies, {'fresh': 'new'})
         self.client.proxy.rotate_with_retries.assert_called_once()
-        self.post.assert_called_once()
-        self.assertEqual(self.client.resets, 1)
+        self.assertEqual(self.post.call_count, 3)
         self.assertIsNone(self.provider.get_unblock_state())
         self.provider._get_new_cookies.assert_not_called()
 
-    def test_timeout_finishes_current_request_without_restarting_unblock(self):
+    def test_synchronous_success_applies_cookies_before_next_avito_request(self):
+        self.statuses = [429, 200]
+        self.post.return_value = self.success()
+        self.assertEqual(self.request().status_code, 200)
+        self.post.assert_called_once()
+        self.assertEqual(self.provider.last_cookies, {'fresh': 'new'})
+        self.assertEqual(self.client.resets, 1)
+
+    def test_timeout_keeps_avito_paused_across_requests(self):
         self.provider.UNBLOCK_TIMEOUT = 90
-        with self.assertRaisesRegex(UnblockTimeoutError, 'последний HTTP-статус: 429'):
+        with self.assertRaises(UnblockTimeoutError):
             self.request()
-        self.assertEqual(self.sent, [1000, 1030, 1060])
+        self.assertEqual(self.sent, [1000])
         self.assertEqual(self.now, 1090)
         self.client.proxy.rotate_with_retries.assert_called_once()
-        self.post.assert_called_once()
-        self.assertIsNone(self.provider.get_unblock_state())
-        # Следующее задание может начать новый цикл; старое не зациклилось.
-        self.statuses = [429, 200]
+        self.assertIsNotNone(self.provider.get_unblock_state())
+        self.post.return_value = self.success()
+        self.statuses = [200]
         self.assertEqual(self.request().status_code, 200)
-        self.assertEqual(self.post.call_count, 2)
+        self.assertEqual(self.sent, [1000, 1120])
+        self.client.proxy.rotate_with_retries.assert_called_once()
 
     def test_pending_task_survives_request_boundary_without_rotation(self):
         self.provider.unblock_started_at = 970
-        self.statuses = [429, 200]
+        self.post.return_value = self.success()
+        self.statuses = [200]
         self.assertEqual(self.request().status_code, 200)
-        self.assertEqual(self.sent, [1030, 1060])
+        self.assertEqual(self.sent, [1030])
         self.client.proxy.rotate_with_retries.assert_not_called()
-        self.post.assert_not_called()
 
     def test_pending_task_prevents_direct_rotation_and_cookie_purchase(self):
         self.provider.unblock_started_at = self.now
@@ -108,12 +121,13 @@ class SpfaWaitTests(unittest.TestCase):
         self.client.proxy.rotate_with_retries.assert_not_called()
         self.post.assert_not_called()
 
-    def test_network_errors_during_probes_do_not_change_ip_or_extend_deadline(self):
+    def test_network_errors_at_spfa_do_not_send_avito_or_extend_deadline(self):
         self.provider.UNBLOCK_TIMEOUT = 90
-        self.statuses = [429, requests.ConnectionError('offline'), requests.Timeout('timeout')]
+        self.post.side_effect = [Mock(status_code=202), requests.ConnectionError('offline'),
+                                 requests.Timeout('timeout')]
         with self.assertRaises(UnblockTimeoutError):
             self.request()
-        self.assertEqual(self.sent, [1000, 1030, 1060])
+        self.assertEqual(self.sent, [1000])
         self.assertEqual(self.now, 1090)
         self.client.proxy.rotate_with_retries.assert_called_once()
 
@@ -124,36 +138,43 @@ class SpfaWaitTests(unittest.TestCase):
         self.assertEqual(self.sent, [1000])
         self.assertIsNotNone(self.provider.get_unblock_state())
         self.cancellation.wait = self.wait
+        self.post.return_value = self.success()
         self.statuses = [200]
         self.assertEqual(self.request().status_code, 200)
         self.client.proxy.rotate_with_retries.assert_called_once()
 
-    def test_unblock_on_last_ordinary_attempt_still_gets_control_request(self):
+    def test_unblock_on_last_attempt_allows_one_request_with_new_cookies(self):
         self.client.block_threshold = 2
         self.statuses = [429, 429, 200]
+        self.post.side_effect = [Mock(status_code=202), self.success()]
         self.assertEqual(self.request().status_code, 200)
         self.assertEqual(self.sent, [1000, 1005, 1035])
-        self.post.assert_called_once()
 
-    def test_spfa_409_uses_same_bounded_wait(self):
-        self.post.return_value.status_code = 409
-        self.statuses = [429, 200]
-        self.assertEqual(self.request().status_code, 200)
-        self.assertEqual(self.sent, [1000, 1030])
-        self.post.assert_called_once()
+    def test_invalid_success_does_not_release_avito(self):
+        self.provider.UNBLOCK_TIMEOUT = 60
+        for body in ({'success': True}, {'success': False}, [],
+                     {'success': True, 'results': {'id': 'wrong', 'cookies': {'x': 'y'}}}):
+            with self.subTest(body=body):
+                self.provider.unblock_started_at = self.now
+                self.post.return_value = Mock(status_code=200, json=lambda: body)
+                with self.assertRaises(UnblockTimeoutError):
+                    self.request()
+                self.client.send.assert_not_called()
+                self.assertEqual(self.provider.last_cookies, {'test': 'cookie'})
 
-    def test_expired_task_does_not_send_another_probe(self):
+    def test_expired_task_does_not_send_avito(self):
         self.provider.unblock_started_at = self.now - self.provider.UNBLOCK_TIMEOUT
         with self.assertRaises(UnblockTimeoutError):
             self.request()
         self.client.send.assert_not_called()
         self.client.proxy.rotate_with_retries.assert_not_called()
 
-    def test_probe_timeout_does_not_exceed_remaining_window(self):
+    def test_spfa_timeout_does_not_exceed_remaining_window(self):
         self.provider.UNBLOCK_TIMEOUT = 40
         self.statuses = [429, 200]
+        self.post.side_effect = [Mock(status_code=202), self.success()]
         self.assertEqual(self.request().status_code, 200)
-        self.assertEqual(self.client.send.call_args.kwargs['timeout'], 10)
+        self.assertEqual(self.post.call_args.kwargs['timeout'], 10)
 
     def test_config_wait_parameters_round_trip_and_validation(self):
         path = Path(self.directory.name) / 'config.toml'

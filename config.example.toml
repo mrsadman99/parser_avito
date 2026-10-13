@@ -24,15 +24,15 @@ use_bypass_api = false               # true — использовать SPFA (s
 cookies_api_key = ""                 # API-ключ SPFA
 own_cookies = false                  # true — свои cookies: GET Avito через прокси (curl_cffi), блокировка = перевыпуск
 purchase_cooldown = 600              # пауза между покупками cookies SPFA, сек
-spfa_unblock_timeout = 300           # окно ожидания SPFA после принятия задачи, сек
-spfa_unblock_check_interval = 30     # пауза между контрольными запросами, сек; меньше timeout выше
+spfa_unblock_timeout = 300           # таймаут SPFA / окно ожидания актуальных cookies, сек
+spfa_unblock_check_interval = 30     # пауза между повторами к SPFA, сек; Avito в это время на паузе
 parse_phone = false                  # парсить телефоны (функция пока не активна)
 
 # --- Паузы и повторы ---
 pause_general = 300                  # общий перерыв между раундами всех ссылок, сек; в нём обновляются карточки
 min_delay = 1.0                      # мин. задержка между запросами к Avito, сек
 max_delay = 3.0                      # макс. задержка между запросами к Avito, сек
-max_count_of_retry = 5               # лимит обычных HTTP-попыток; контроль SPFA ограничен отдельным окном выше
+max_count_of_retry = 5               # лимит обычных HTTP-попыток; ожидание SPFA ограничено отдельным окном выше
 retry_delay = 5                      # пауза обычных повторов, сек; при ожидании SPFA — spfa_unblock_check_interval
 timeout = 20                         # таймаут запроса, сек
 block_threshold = 3                  # блокировок до «обработки бана»

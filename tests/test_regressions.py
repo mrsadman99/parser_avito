@@ -327,6 +327,7 @@ class RegressionTests(unittest.TestCase):
         client.max_retries = 5
         client.timeout = 30
         client.cookies = Mock()
+        client._cookies_revision = client.cookies.revision
         client._client = Mock()
         cancelled = threading.Event()
 
@@ -346,6 +347,7 @@ class RegressionTests(unittest.TestCase):
         client.max_retries = 5
         client.timeout = 30
         client.cookies = None
+        client._cookies_revision = None
         client._client = Mock()
         client._client.request.return_value = Mock(status_code=403)
         client._block_attempts = client.block_count = 0
@@ -363,6 +365,7 @@ class RegressionTests(unittest.TestCase):
         client.max_retries = 2
         client.timeout = 30
         client.cookies = Mock()
+        client._cookies_revision = client.cookies.revision
         client.proxy = Mock()
         client.proxy.rotate_with_retries.side_effect = lambda cancellation: client.proxy.handle_block()
         client._client = Mock()

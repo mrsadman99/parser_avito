@@ -139,6 +139,8 @@ class BaseHttpClient(ABC):
         logger.info(f"Запрос {method.upper()} {url} — IP: {current_ip or 'не определён'}")
 
         attempt = 0
+        recovery_retry = False
+        recovery_retry_used = False
         while True:
             cancellation.checkpoint()
             state = self._unblock_state()
@@ -147,7 +149,7 @@ class BaseHttpClient(ABC):
                 remaining = state.deadline - time.monotonic()
                 if remaining > 0:
                     delay = min(state.check_interval, remaining)
-                    logger.info('SPFA: контрольный запрос через {:.1f}с; до конца ожидания {:.1f}с; IP сохраняется',
+                    logger.info('SPFA: проверка cookies через {:.1f}с; до конца ожидания {:.1f}с; Avito приостановлен',
                                 delay, remaining)
                     cancellation.wait(delay)
                 remaining = state.deadline - time.monotonic()
@@ -158,14 +160,20 @@ class BaseHttpClient(ABC):
                     raise UnblockTimeoutError(
                         f'Истёк срок ожидания SPFA для {url}; последний HTTP-статус: {status}'
                     ) from last_exc
+                if self.cookies.poll_unblock(timeout=remaining):
+                    # Сессия должна получить именно подтверждённый SPFA набор.
+                    self._reset()
+                    recovery_retry = True
+                continue
             else:
                 if attempt >= self.max_retries:
-                    break
+                    if recovery_retry and not recovery_retry_used:
+                        recovery_retry_used = True
+                    else:
+                        break
                 attempt += 1
             try:
                 request_kwargs = dict(kwargs)
-                if probe:
-                    request_kwargs['timeout'] = min(self.timeout, remaining)
                 response = self._send(method, url, cancellation=cancellation, **request_kwargs)
                 self.last_response = response
                 cancellation.checkpoint()
@@ -181,11 +189,11 @@ class BaseHttpClient(ABC):
                         f"Запрос заблокирован ({status}) к {url}, "
                         f"попытка {self._block_attempts}"
                     )
-                    if not probe and self._block_attempts >= self.block_threshold:
+                    if self._block_attempts >= self.block_threshold:
                         logger.warning("Достигнут лимит блокировок, запускается обработка")
                         self._rotate(cancellation)
                         self._block_attempts = 0
-                    if not probe and self._unblock_state() is None:
+                    if self._unblock_state() is None:
                         cancellation.wait(self.retry_delay)
                     continue
 
@@ -203,10 +211,9 @@ class BaseHttpClient(ABC):
                 cancellation.checkpoint()
                 last_exc = err
                 self.error_count += 1
-                label = 'SPFA control' if probe else f'attempt {attempt}'
-                logger.warning(f"Request error ({label}): {err}")
+                logger.warning(f"Request error (attempt {attempt}): {err}")
                 self._on_error(err)
-                if not probe and self._unblock_state() is None:
+                if self._unblock_state() is None:
                     cancellation.wait(self.retry_delay)
 
         raise RuntimeError("HTTP запросы были неуспешными") from last_exc

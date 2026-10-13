@@ -11,6 +11,10 @@ class UnblockState:
 
 class CookiesProvider(ABC):
 
+    def poll_unblock(self, timeout: float) -> bool:
+        """Проверить готовность cookies у провайдера, без запросов к Avito."""
+        raise NotImplementedError
+
     def get_unblock_state(self) -> UnblockState | None:
         return None
 

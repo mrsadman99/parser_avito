@@ -7,7 +7,7 @@ from engine.proxies.proxy import Proxy
 from engine.proxies.proxy_factory import build_proxy
 
 
-def build_notifier(config: AvitoConfig, *, avito_proxy: Proxy | None = None) -> Notifier:
+def build_notifier(config: AvitoConfig, *, avito_proxy: Proxy | None = None, photo_guard=None) -> Notifier:
     notifiers = []
     photo_proxy = (avito_proxy if avito_proxy is not None else build_proxy(config)).get_httpx_proxy()
 
@@ -17,13 +17,14 @@ def build_notifier(config: AvitoConfig, *, avito_proxy: Proxy | None = None) -> 
                                               chat_id=_chat_id,
                                               proxy=config.messengers.proxy_notifier,
                                               photo_proxy=photo_proxy,
+                                              photo_guard=photo_guard,
                                               ))
 
     if config.messengers.vk_token:
         for _user_id in config.messengers.vk_user_id:
             notifiers.append(VKNotifier(vk_token=config.messengers.vk_token, user_id=_user_id,
                                         proxy=config.messengers.proxy_notifier,
-                                        photo_proxy=photo_proxy))
+                                        photo_proxy=photo_proxy, photo_guard=photo_guard))
 
     if notifiers:
         return CompositeNotifier(notifiers)
