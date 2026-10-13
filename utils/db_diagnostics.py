@@ -170,3 +170,4 @@ class DatabaseDiagnostics:
 
 
 web_database_diagnostics = DatabaseDiagnostics()
+ads_database_diagnostics = DatabaseDiagnostics()

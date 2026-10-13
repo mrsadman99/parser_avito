@@ -1,10 +1,12 @@
 import sqlite3
 import json
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 from domain.item import Item
+from utils.db_diagnostics import ads_database_diagnostics
 
 NOTIFICATION_MAX_ATTEMPTS = 10
 
@@ -55,14 +57,35 @@ class SQLiteDBHandler:
 
     def __init__(self, db_name="database.db"):
         if not hasattr(self, "_initialized"):
-            self.db_name = db_name
+            # Фиксируем исходное расположение, даже если позднее изменится cwd.
+            self.db_name = str(Path(db_name).absolute())
             self._create_table()
             self._migrate()
             self._initialized = True
 
+    @contextmanager
+    def _connect(self, operation, *, path=None):
+        path = self.db_name if path is None else path
+        stage = "connect"
+        try:
+            conn = sqlite3.connect(path)
+            try:
+                stage = "query_or_transaction"
+                with conn:
+                    yield conn
+                stage = "close"
+            finally:
+                # with conn управляет транзакцией, но не закрывает соединение.
+                conn.close()
+        except (sqlite3.Error, OSError) as error:
+            ads_database_diagnostics.failure(path, error, stage=stage, operation=operation)
+            raise
+        else:
+            ads_database_diagnostics.success(path, operation=operation)
+
     def _create_table(self):
         """Создает таблицу viewed, если она не существует."""
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("_create_table") as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -87,11 +110,11 @@ class SQLiteDBHandler:
 
     def _migrate(self):
         """Миграция к истории по подпискам; старые URL остаются отдельной историей."""
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("_migrate") as conn:
             existing = {row[1] for row in conn.execute("PRAGMA table_info(viewed)")}
             if "source_key" not in existing and conn.execute("SELECT 1 FROM viewed LIMIT 1").fetchone():
                 backup = Path(f"{self.db_name}.before-subscriptions-{time.time_ns()}.bak")
-                with sqlite3.connect(backup) as destination:
+                with self._connect("migration_backup", path=backup) as destination:
                     conn.backup(destination)
             conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
@@ -159,7 +182,7 @@ class SQLiteDBHandler:
 
     def add_record(self, ad: Item):
         """Добавляет новую запись в таблицу viewed."""
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("add_record") as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -204,7 +227,7 @@ class SQLiteDBHandler:
             for ad in ads
         ]
 
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("add_record_from_page") as conn:
             cursor = conn.cursor()
             cursor.executemany(
                 """
@@ -247,25 +270,25 @@ class SQLiteDBHandler:
                 cursor.execute(f"UPDATE viewed SET {assignments} WHERE id = ?", [*fields.values(), ad.id])
 
     def update_catalog_status(self, ads):
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("update_catalog_status") as conn:
             self._write_catalog_status(conn.cursor(), ads)
 
     def next_ad_for_refresh(self, interval, now=None):
         now = time.time() if now is None else now
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("next_ad_for_refresh") as conn:
             row = conn.execute("""SELECT ad_id FROM ad_refresh_state
                 WHERE last_attempt <= ? AND EXISTS (SELECT 1 FROM viewed WHERE id = ad_id)
                 ORDER BY last_attempt, ad_id LIMIT 1""", (now - interval,)).fetchone()
             return row[0] if row else None
 
     def finish_ad_refresh(self, ad_id, now=None):
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("finish_ad_refresh") as conn:
             conn.execute("UPDATE ad_refresh_state SET last_attempt = ? WHERE ad_id = ?",
                          (time.time() if now is None else now, ad_id))
 
     def list_ads(self, source_url: str, source_keys: list[str] | None = None) -> list[dict]:
         """Запарсенные объявления по исходной ссылке."""
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("list_ads") as conn:
             conn.row_factory = sqlite3.Row
             query = "SELECT * FROM viewed WHERE source_url = ?"
             params = [source_url]
@@ -280,7 +303,7 @@ class SQLiteDBHandler:
     def pending_notifications(self, recipients: list[str], limit: int = 100) -> list[dict]:
         if not recipients:
             return []
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("pending_notifications") as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(f"""
                 SELECT * FROM notification_outbox
@@ -293,7 +316,7 @@ class SQLiteDBHandler:
     def finish_notification(self, notification_id: int, success: bool, *,
                             permanent: bool = False, error: str | None = None) -> bool:
         """Сохраняет результат. True означает прекращение автоматических повторов."""
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("finish_notification") as conn:
             row = conn.execute("SELECT attempts FROM notification_outbox WHERE id = ?",
                                (notification_id,)).fetchone()
             if row is None:
@@ -311,7 +334,7 @@ class SQLiteDBHandler:
         """Резервирует одну отправку; после падения процесса она вернётся через 10 минут."""
         if not recipients:
             return None
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("claim_notification") as conn:
             conn.row_factory = sqlite3.Row
             conn.execute("BEGIN IMMEDIATE")
             now = time.time()
@@ -347,7 +370,7 @@ class SQLiteDBHandler:
         where = "WHERE id IS NOT NULL"
         if only_missing:
             where += " AND (city IS NULL OR has_delivery IS NULL)"
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("list_ads_for_refresh") as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 f"""
@@ -371,7 +394,7 @@ class SQLiteDBHandler:
             return 0
         assignments = ", ".join(f"{col} = ?" for col in cols)
         values = [fields[col] for col in cols]
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("update_ad") as conn:
             cursor = conn.execute(
                 f"UPDATE OR REPLACE viewed SET {assignments} WHERE id = ?", values + [ad_id]
             )
@@ -383,7 +406,7 @@ class SQLiteDBHandler:
 
     def delete_ad(self, ad_id) -> int:
         """Удаляет объявление (все строки с этим id)."""
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("delete_ad") as conn:
             cursor = conn.execute("DELETE FROM viewed WHERE id = ?", (ad_id,))
             conn.execute("DELETE FROM ad_refresh_state WHERE ad_id = ?", (ad_id,))
             conn.execute("DELETE FROM notification_outbox WHERE ad_id = ? AND sent = 0", (ad_id,))
@@ -392,7 +415,7 @@ class SQLiteDBHandler:
 
     def record_exists(self, record_id, price, source_key: str = ""):
         """Проверяет, существует ли запись с заданными id и price."""
-        with sqlite3.connect(self.db_name) as conn:
+        with self._connect("record_exists") as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT 1 FROM viewed WHERE id = ? AND price = ? AND source_key = ?",

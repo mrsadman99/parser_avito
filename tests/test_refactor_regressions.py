@@ -89,6 +89,7 @@ def test_browser_stops_at_cancellation_boundary(stage):
 def test_curl_keeps_retry_and_block_reset_semantics():
     with patch.object(HttpClient, "_build_client", return_value=Mock()):
         client = HttpClient(NoProxy(), max_retries=4, retry_delay=0, block_threshold=3)
+    client._cookies_revision = None  # _build_client подменён и не инициализирует поле.
     client.get_current_ip = Mock(return_value=None)
     client.proxy = Mock()
     blocked = Mock(status_code=403)
@@ -118,6 +119,7 @@ def test_curl_ip_lookup_preserves_transport_and_fingerprint():
 def test_curl_http_error_is_retried_unless_explicitly_accepted():
     with patch.object(HttpClient, "_build_client", return_value=Mock()):
         client = HttpClient(NoProxy(), max_retries=2, retry_delay=0)
+    client._cookies_revision = None  # _build_client подменён и не инициализирует поле.
     client.get_current_ip = Mock(return_value=None)
     response = Mock(status_code=404)
     response.raise_for_status.side_effect = curl_requests.RequestsError("HTTP 404")
