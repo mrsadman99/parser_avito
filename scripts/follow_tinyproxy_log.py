@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from load_config import load_avito_config
-from utils.own_mobile_proxy import LOCAL_LOG, stream_remote_log
+from mobile_proxy.own_mobile_proxy import LOCAL_LOG, stream_remote_log
 
 
 def main(argv=None):

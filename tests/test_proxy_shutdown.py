@@ -10,11 +10,11 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 
-from dto import AvitoConfig, OwnMobileProxyConfig
+from domain.config import AvitoConfig, OwnMobileProxyConfig
 from scripts import stop as stop_script
-from utils import background_process as process
-from utils import own_mobile_proxy as mobile
-from utils import tinyproxy_forward as forward
+from mobile_proxy import background_process as process
+from mobile_proxy import own_mobile_proxy as mobile
+from mobile_proxy import tinyproxy_forward as forward
 
 
 class RemoteStopTests(unittest.TestCase):
@@ -206,7 +206,7 @@ class LocalProcessTests(unittest.TestCase):
             script.write_text(
                 'import signal,sys\nfrom pathlib import Path\n'
                 f'sys.path.insert(0, {str(mobile.ROOT)!r})\n'
-                'from utils import adb\n'
+                'from mobile_proxy import adb\n'
                 f'adb.ADB_LOG = Path({str(journal)!r})\n'
                 'def stop(*args): raise SystemExit(0)\n'
                 'signal.signal(signal.SIGTERM, stop)\n'

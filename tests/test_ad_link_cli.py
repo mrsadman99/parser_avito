@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from scripts import test_ad_link
-from dto import AvitoConfig
+from domain.config import AvitoConfig
 
 
 class AdLinkCliTests(unittest.TestCase):

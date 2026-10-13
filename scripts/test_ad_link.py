@@ -10,9 +10,9 @@ from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from load_config import load_avito_config
-from parser.proxies.proxy_factory import build_proxy
+from engine.proxies.proxy_factory import build_proxy
 from scripts.retrieve_ad_links import _build_request_client
-from utils.own_mobile_proxy import ensure_own_mobile_proxy, start_proxy
+from mobile_proxy.own_mobile_proxy import ensure_own_mobile_proxy, start_proxy
 
 
 def api_url(value):

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import tomli_w
 
-from dto import (
+from domain.config import (
     AvitoConfig,
     LinkConfig,
     CamoufoxConfig,

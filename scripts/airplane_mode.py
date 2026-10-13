@@ -19,10 +19,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from utils.own_mobile_proxy import AIRPLANE_OFF_SLEEP, AIRPLANE_ON_SLEEP, set_airplane_adb
+from mobile_proxy.own_mobile_proxy import AIRPLANE_OFF_SLEEP, AIRPLANE_ON_SLEEP, set_airplane_adb
 
 
-from utils.adb import run_adb as _adb
+from mobile_proxy.adb import run_adb as _adb
 
 
 def _check_device(serial) -> bool:
@@ -71,7 +71,7 @@ def main(argv=None):
     if own.transport == "ssh":
         if args.serial:
             parser.error("--serial применяется только при transport=adb")
-        from utils.own_mobile_proxy import _connect, _run_remote, _rotate_airplane_ssh, REMOTE_ENV
+        from mobile_proxy.own_mobile_proxy import _connect, _run_remote, _rotate_airplane_ssh, REMOTE_ENV
         if not args.on and not args.off:
             return 0 if _rotate_airplane_ssh(own.ssh, args.on_sleep, args.off_sleep) else 1
         client = None

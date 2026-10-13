@@ -4,9 +4,9 @@ import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
-from dto import AvitoConfig, OwnMobileProxyConfig
-from parser.proxies.proxy_factory import build_proxy
-from utils import own_mobile_proxy as mobile
+from domain.config import AvitoConfig, OwnMobileProxyConfig
+from engine.proxies.proxy_factory import build_proxy
+from mobile_proxy import own_mobile_proxy as mobile
 
 
 def result(code=0, stdout='', stderr=''):

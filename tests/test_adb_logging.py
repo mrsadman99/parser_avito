@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from utils import adb
-from utils import own_mobile_proxy as mobile
+from mobile_proxy import adb
+from mobile_proxy import own_mobile_proxy as mobile
 
 
 class AdbLoggingTests(unittest.TestCase):

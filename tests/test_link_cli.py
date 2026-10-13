@@ -9,9 +9,9 @@ from unittest.mock import Mock, patch
 
 from curl_cffi import requests
 
-from dto import AvitoConfig, OwnMobileProxyConfig
-from parser.http.client import HttpClient
-from parser.http.camoufox_client import CamoufoxClient
+from domain.config import AvitoConfig, OwnMobileProxyConfig
+from engine.http.client import HttpClient
+from engine.http.camoufox_client import CamoufoxClient
 from scripts import retrieve_ad_links
 
 
@@ -52,8 +52,8 @@ class LinkCliTests(unittest.TestCase):
         session = Mock()
         blocked = self.response(439)
         session.request.return_value = blocked
-        with patch('parser.http.client.requests.Session', return_value=session) as factory, \
-             patch('parser.proxies.rotation._rotation_attempt', return_value=(False, 'timeout')) as rotate:
+        with patch('engine.http.client.requests.Session', return_value=session) as factory, \
+             patch('engine.proxies.rotation._rotation_attempt', return_value=(False, 'timeout')) as rotate:
             self.assertEqual(self.run_cli(), 1)
             self.assertEqual(session.request.call_count, 3)
             self.assertEqual(rotate.call_count, 3)
@@ -73,8 +73,8 @@ class LinkCliTests(unittest.TestCase):
                                 '{"@type":"Product","sku":"123","name":"Test item",'
                                 '"offers":{"price":"28900"}}</script>')
         second.request.return_value = success
-        with patch('parser.http.client.requests.Session', side_effect=[first, second]), \
-             patch('parser.proxies.rotation._rotation_attempt', side_effect=[(False, 'offline'), (True, None)]) as rotate:
+        with patch('engine.http.client.requests.Session', side_effect=[first, second]), \
+             patch('engine.proxies.rotation._rotation_attempt', side_effect=[(False, 'offline'), (True, None)]) as rotate:
             self.assertEqual(self.run_cli(), 0)
             self.assertEqual(rotate.call_count, 2)
         self.provider.handle_block.assert_called_once()
@@ -90,8 +90,8 @@ class LinkCliTests(unittest.TestCase):
         first, second = Mock(), Mock()
         first.request.return_value = self.response(439)
         second.request.return_value = self.response(439)
-        with patch('parser.http.client.requests.Session', side_effect=[first, second]), \
-             patch('parser.proxies.rotation._rotation_attempt', return_value=(True, None)) as rotate:
+        with patch('engine.http.client.requests.Session', side_effect=[first, second]), \
+             patch('engine.proxies.rotation._rotation_attempt', return_value=(True, None)) as rotate:
             self.assertEqual(self.run_cli(), 1)
             self.assertEqual(first.request.call_count + second.request.call_count, 5)
             rotate.assert_called_once()
@@ -101,8 +101,8 @@ class LinkCliTests(unittest.TestCase):
         self.config.max_count_of_retry = 2
         session = Mock()
         session.request.side_effect = requests.RequestsError('test network failure')
-        with patch('parser.http.client.requests.Session', return_value=session), \
-             patch('parser.proxies.rotation._rotation_attempt') as rotate:
+        with patch('engine.http.client.requests.Session', return_value=session), \
+             patch('engine.proxies.rotation._rotation_attempt') as rotate:
             self.assertEqual(self.run_cli('--timeout', '25'), 1)
             self.assertEqual(session.request.call_count, 2)
             self.assertEqual(session.request.call_args.kwargs['timeout'], 25)
@@ -117,7 +117,7 @@ class LinkCliTests(unittest.TestCase):
         browser_response.text.return_value = '<html>Browser blocked</html>'
         page.goto.return_value = browser_response
         with patch.object(CamoufoxClient, '_ensure_page', return_value=page), \
-             patch('parser.proxies.rotation._rotation_attempt', return_value=(False, 'timeout')) as rotate:
+             patch('engine.proxies.rotation._rotation_attempt', return_value=(False, 'timeout')) as rotate:
             self.assertEqual(self.run_cli(), 1)
             self.assertEqual(page.goto.call_count, 3)
             self.assertEqual(rotate.call_count, 3)

@@ -32,7 +32,7 @@ import sys
 from pathlib import Path
 
 from load_config import load_avito_config
-from utils.own_mobile_proxy import ensure_own_mobile_proxy
+from mobile_proxy.own_mobile_proxy import ensure_own_mobile_proxy
 
 ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "web-server"
@@ -155,7 +155,7 @@ def main():
     config = load_avito_config("config.toml")
     detached = bool(getattr(config, "detached_mode", False))
 
-    from server import store
+    from persistence import store
     store.init_db()
 
     if args.dev:

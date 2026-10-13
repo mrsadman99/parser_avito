@@ -22,7 +22,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from db_service import SQLiteDBHandler
+from persistence.ads import SQLiteDBHandler
 
 DB = "database.db"
 WEB_DB = "storage/web.db"

@@ -5,11 +5,11 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from dto import AvitoConfig
+from domain.config import AvitoConfig
 from load_config import load_avito_config
-from parser.cancellation import Cancellation, ParseCancelled
-from parser.cookies.external_api import ExternalApiCookiesProvider
-from parser.http.base import BaseHttpClient, UnblockTimeoutError
+from engine.cancellation import Cancellation, ParseCancelled
+from engine.cookies.external_api import ExternalApiCookiesProvider
+from engine.http.base import BaseHttpClient, UnblockTimeoutError
 
 
 class ScriptedClient(BaseHttpClient):
@@ -37,7 +37,7 @@ class SpfaWaitTests(unittest.TestCase):
         self.provider.last_cookies = {'test': 'cookie'}
         self.provider._save_to_disk = Mock()
         self.provider._get_new_cookies = Mock()
-        self.post = patch('parser.cookies.external_api.requests.post',
+        self.post = patch('engine.cookies.external_api.requests.post',
                           return_value=Mock(status_code=202)).start()
         self.addCleanup(patch.stopall)
         self.client = ScriptedClient(Mock(rotate_with_retries=Mock(return_value=True)),

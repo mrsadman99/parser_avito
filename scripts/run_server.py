@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from load_config import load_avito_config
 from run import ROOT, WEB_DIR, build_frontend, ensure_web_deps, launch
-from utils.own_mobile_proxy import ensure_own_mobile_proxy
+from mobile_proxy.own_mobile_proxy import ensure_own_mobile_proxy
 
 
 def main():
@@ -36,7 +36,7 @@ def main():
     config = load_avito_config("config.toml")
     detached = bool(getattr(config, "detached_mode", False))
 
-    from server import store
+    from persistence import store
     store.init_db()
 
     if args.dev:

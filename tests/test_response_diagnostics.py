@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from parser.response_diagnostics import json_structure
+from engine.response_diagnostics import json_structure
 
 
 class ResponseDiagnosticsTests(unittest.TestCase):

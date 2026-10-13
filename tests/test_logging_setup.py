@@ -7,8 +7,8 @@ from pathlib import Path
 from loguru import logger
 
 from utils.logging_setup import configure_app_logging, log_category
-from parser.cancellation import Cancellation
-from parser.proxies.rotation import _rotation_attempt
+from engine.cancellation import Cancellation
+from engine.proxies.rotation import _rotation_attempt
 
 
 class LoggingRotationProxy:
@@ -66,14 +66,14 @@ class LoggingTests(unittest.TestCase):
             handlers = configure_app_logging(directory)
             try:
                 cases = [
-                    ("parser_cls", "_run_scheduler", "ROUND", "scanning"),
-                    ("parser_cls", "_refresh_ad", "REFRESH", "scanning"),
-                    ("parser_cls", "_deliver_pending_notifications", "DELIVERY", "notifications"),
-                    ("integrations.notifications.transport", "request", "TELEGRAM", "notifications"),
-                    ("parser.http.client", "request", "HTTP", "blocking"),
-                    ("parser.cookies.external_api", "unblock", "COOKIES", "blocking"),
-                    ("parser.proxies.rotation", "rotate_with_retries", "ROTATE", "blocking"),
-                    ("utils.adb", "run_adb", "ADB", "blocking"),
+                    ("engine.app", "_run_scheduler", "ROUND", "scanning"),
+                    ("engine.app", "_refresh_ad", "REFRESH", "scanning"),
+                    ("engine.app", "_deliver_pending_notifications", "DELIVERY", "notifications"),
+                    ("notifications.transport", "request", "TELEGRAM", "notifications"),
+                    ("engine.http.client", "request", "HTTP", "blocking"),
+                    ("engine.cookies.external_api", "unblock", "COOKIES", "blocking"),
+                    ("engine.proxies.rotation", "rotate_with_retries", "ROTATE", "blocking"),
+                    ("mobile_proxy.adb", "run_adb", "ADB", "blocking"),
                     ("server.main", "unrelated", "OTHER", None),
                 ]
                 token = "123456789:" + "x" * 30
@@ -97,7 +97,7 @@ class LoggingTests(unittest.TestCase):
             self.assertNotIn("FATAL_ROTATION", logs["scanning"])
 
     def test_direct_parser_entrypoint_routes_by_filename(self):
-        record = dict(name="__main__", file=type("File", (), {"name": "parser_cls.py"})(),
+        record = dict(name="__main__", file=type("File", (), {"name": "app.py"})(),
                       function="_notification_cycle", extra={})
         self.assertEqual(log_category(record), "notifications")
         record["function"] = "_link_cycle"

@@ -138,7 +138,7 @@ def stop_own_proxy(dry_run: bool) -> int:
     except Exception as err:
         print(f"  ⚠️ Не удалось прочитать config.toml: {err}")
         if not dry_run:
-            from utils.own_mobile_proxy import stop_proxy
+            from mobile_proxy.own_mobile_proxy import stop_proxy
             stop_proxy(None, force=True)
         return 1
 
@@ -146,7 +146,7 @@ def stop_own_proxy(dry_run: bool) -> int:
         print("  proxy: tinyproxy (nohup), стрим логов и TCP-проброс будут остановлены")
         return 0
 
-    from utils.own_mobile_proxy import stop_proxy
+    from mobile_proxy.own_mobile_proxy import stop_proxy
 
     print("  proxy: останавливаю tinyproxy (nohup) на телефоне...")
     result = stop_proxy(config, force=True)

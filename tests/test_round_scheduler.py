@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from dto import AvitoConfig, LinkConfig, ParseTarget
+from domain.config import AvitoConfig, LinkConfig, ParseTarget
 from load_config import load_avito_config
-from parser.request_queue import RequestThrottle
-from parser_cls import AvitoParse
+from engine.request_queue import RequestThrottle
+from engine.app import AvitoParse
 
 
 class RoundSchedulerTests(unittest.TestCase):

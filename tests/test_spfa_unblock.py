@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from parser.cookies.external_api import ExternalApiCookiesProvider
+from engine.cookies.external_api import ExternalApiCookiesProvider
 
 
 class SpfaUnblockTests(unittest.TestCase):
@@ -44,9 +44,9 @@ class SpfaUnblockTests(unittest.TestCase):
         provider.request_proxies = None
         provider.update(Mock(status_code=200, cookies={}))
         provider.update(Mock(status_code=429, cookies={}))
-        with patch('parser.cookies.external_api.time.monotonic', return_value=1000), \
-             patch('parser.cookies.external_api.requests.post', return_value=Mock(status_code=202)) as post, \
-             patch('parser.cookies.external_api.logger') as log:
+        with patch('engine.cookies.external_api.time.monotonic', return_value=1000), \
+             patch('engine.cookies.external_api.requests.post', return_value=Mock(status_code=202)) as post, \
+             patch('engine.cookies.external_api.logger') as log:
             provider.handle_block()
         post.assert_called_once()
         self.assertEqual(provider.unblock_started_at, 1000)

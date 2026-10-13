@@ -7,12 +7,12 @@ from pathlib import Path
 import flet as ft
 from loguru import logger
 
-from dto import AvitoConfig, MessengersConfig, ServerConfig
-from integrations.notifications.factory import build_notifier
+from domain.config import AvitoConfig, MessengersConfig, ServerConfig
+from notifications.factory import build_notifier
 from lang import *
 from load_config import save_avito_config, load_avito_config
-from parser_cls import AvitoParse
-from parser.proxies.proxy import ProxyRotationError
+from engine.app import AvitoParse
+from engine.proxies.proxy import ProxyRotationError
 from version import VERSION
 
 

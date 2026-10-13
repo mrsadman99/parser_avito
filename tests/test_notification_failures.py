@@ -9,12 +9,12 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from db_service import NOTIFICATION_MAX_ATTEMPTS, SQLiteDBHandler
-from integrations.notifications.telegram import TelegramNotifier
-from integrations.notifications.transport import is_permanent_delivery_error, send_with_retries
-from integrations.notifications.utils import escape_markdown_v2
-from models import Item
-from parser_cls import AvitoParse
+from persistence.ads import NOTIFICATION_MAX_ATTEMPTS, SQLiteDBHandler
+from notifications.telegram import TelegramNotifier
+from notifications.transport import is_permanent_delivery_error, send_with_retries
+from notifications.utils import escape_markdown_v2
+from domain.item import Item
+from engine.app import AvitoParse
 
 
 def http_error(status):
@@ -78,7 +78,7 @@ class NotificationQueueTests(unittest.TestCase):
         self.target.notify.side_effect = error
         self.parser._deliver_pending_notifications()
         self.restart()
-        with patch('db_service.time.time', return_value=10**12):
+        with patch('persistence.ads.time.time', return_value=10**12):
             self.parser._deliver_pending_notifications()
             self.assertEqual(self.db.pending_notifications(['recipient']), [])
         self.target.notify.assert_called_once()
@@ -90,12 +90,12 @@ class NotificationQueueTests(unittest.TestCase):
     def test_transient_failure_budget_survives_restart(self):
         self.target.notify.side_effect = requests.Timeout('network timeout')
         for attempt in range(NOTIFICATION_MAX_ATTEMPTS):
-            with patch('db_service.time.time', return_value=1000 + 61 * attempt):
+            with patch('persistence.ads.time.time', return_value=1000 + 61 * attempt):
                 self.parser._deliver_pending_notifications()
                 self.assertEqual(self.db.pending_notifications(['recipient']), [])
             if attempt == 4:
                 self.restart()
-        with patch('db_service.time.time', return_value=10**12):
+        with patch('persistence.ads.time.time', return_value=10**12):
             self.parser._deliver_pending_notifications()
         self.assertEqual(self.target.notify.call_count, NOTIFICATION_MAX_ATTEMPTS)
         row = self.row()
@@ -110,10 +110,10 @@ class NotificationQueueTests(unittest.TestCase):
             with self.subTest(status=status):
                 self.assertTrue(is_permanent_delivery_error(http_error(status)))
         self.target.notify.side_effect = [http_error(429), None]
-        with patch('db_service.time.time', return_value=1000):
+        with patch('persistence.ads.time.time', return_value=1000):
             self.parser._deliver_pending_notifications()
         self.assertEqual(self.row()['failed'], 0)
-        with patch('db_service.time.time', return_value=1061):
+        with patch('persistence.ads.time.time', return_value=1061):
             self.parser._deliver_pending_notifications()
         self.assertEqual(self.target.notify.call_count, 2)
         row = self.row()
@@ -121,13 +121,13 @@ class NotificationQueueTests(unittest.TestCase):
 
     def test_expired_final_lease_is_not_retried_after_crash(self):
         for attempt in range(NOTIFICATION_MAX_ATTEMPTS):
-            with patch('db_service.time.time', return_value=1000 + attempt * 601):
+            with patch('persistence.ads.time.time', return_value=1000 + attempt * 601):
                 entry = self.db.claim_notification(['recipient'])
                 self.assertEqual(entry['attempts'], attempt + 1)
                 self.assertIsNone(self.db.claim_notification(['recipient']))
                 self.assertEqual(self.row()['failed'], 0)
         self.restart()
-        with patch('db_service.time.time', return_value=10**12):
+        with patch('persistence.ads.time.time', return_value=10**12):
             self.assertIsNone(self.db.claim_notification(['recipient']))
         self.assertEqual(self.row()['failed'], 1)
         self.assertIn('неизвестен', self.row()['last_error'])
@@ -155,7 +155,7 @@ class NotificationQueueTests(unittest.TestCase):
         with sqlite3.connect(path) as conn:
             self.assertEqual(conn.execute('SELECT sent, retry_at, attempts, failed FROM notification_outbox ORDER BY id').fetchall(),
                              [(0, 123, 0, 0), (1, 0, 0, 0)])
-        with patch('db_service.time.time', return_value=1000):
+        with patch('persistence.ads.time.time', return_value=1000):
             self.assertEqual([r['ad_id'] for r in self.db.pending_notifications(['recipient'])], [1])
 
     def test_transport_retries_request_timeout_status(self):

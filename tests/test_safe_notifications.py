@@ -5,8 +5,8 @@ import requests
 from loguru import logger
 
 from hide_private_data import redact_log_text, mask_sensitive_data
-from integrations.notifications.transport import send_with_retries
-from integrations.notifications.telegram import TelegramNotifier
+from notifications.transport import send_with_retries
+from notifications.telegram import TelegramNotifier
 
 
 class SafeNotificationsTests(unittest.TestCase):
@@ -76,7 +76,7 @@ class SafeNotificationsTests(unittest.TestCase):
     def test_photo_diagnostics_keep_route_without_proxy_credentials(self):
         notifier = TelegramNotifier('unused', 'unused', proxy='127.0.0.1:5222',
                                     photo_proxy='login:secret@127.0.0.1:8888')
-        with patch('integrations.notifications.photos.requests.Session') as factory:
+        with patch('notifications.photos.requests.Session') as factory:
             session = factory.return_value.__enter__.return_value
             session.get.side_effect = requests.exceptions.SSLError('EOF')
             with self.assertRaises(requests.exceptions.SSLError):

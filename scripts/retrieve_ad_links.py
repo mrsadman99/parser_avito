@@ -27,13 +27,13 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit, urljoin
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from load_config import load_avito_config
-from parser.cookies.factory import build_cookies_provider
-from parser.detail import parse_ad_html
-from parser.http.client import HttpClient
-from parser.http.camoufox_client import CamoufoxClient
-from parser.proxies.proxy_factory import build_proxy
-from parser.url_converter import AvitoUrlConverter
-from utils.own_mobile_proxy import ensure_own_mobile_proxy, proxy_address, start_proxy
+from engine.cookies.factory import build_cookies_provider
+from engine.detail import parse_ad_html
+from engine.http.client import HttpClient
+from engine.http.camoufox_client import CamoufoxClient
+from engine.proxies.proxy_factory import build_proxy
+from engine.url_converter import AvitoUrlConverter
+from mobile_proxy.own_mobile_proxy import ensure_own_mobile_proxy, proxy_address, start_proxy
 
 
 def _build_request_client(config, proxy, timeout=None):

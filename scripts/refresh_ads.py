@@ -25,10 +25,10 @@ from urllib.parse import urlsplit, urlunsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from db_service import SQLiteDBHandler
+from persistence.ads import SQLiteDBHandler
 from load_config import load_avito_config
-from parser.detail import parse_ad_html
-from parser_cls import AvitoParse
+from engine.detail import parse_ad_html
+from engine.app import AvitoParse
 
 
 def _report_proxy(config) -> None:

@@ -6,16 +6,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from db_service import SQLiteDBHandler
-from dto import AvitoConfig, LinkConfig, ParseTarget
+from persistence.ads import SQLiteDBHandler
+from domain.config import AvitoConfig, LinkConfig, ParseTarget
 from load_config import load_avito_config
-from models import Item, PriceDetailed
-from parser.cancellation import Cancellation, ParseCancelled
-from parser.mobile_detail import parse_mobile_detail
-from parser.request_queue import RequestThrottle
-from parser.proxies.proxy import ProxyRotationError
-from parser.http.client import HttpClient
-from parser_cls import AvitoParse
+from domain.item import Item, PriceDetailed
+from engine.cancellation import Cancellation, ParseCancelled
+from engine.mobile_detail import parse_mobile_detail
+from engine.request_queue import RequestThrottle
+from engine.proxies.proxy import ProxyRotationError
+from engine.http.client import HttpClient
+from engine.app import AvitoParse
 
 
 def item(i=1):
@@ -87,7 +87,7 @@ class RefreshTests(unittest.TestCase):
         SQLiteDBHandler._instance = None
         self.db = SQLiteDBHandler(str(Path(self.tmp.name) / 'ads.db'))
         self.addCleanup(setattr, SQLiteDBHandler, '_instance', self.previous)
-        with patch('db_service.time.time', return_value=100):
+        with patch('persistence.ads.time.time', return_value=100):
             self.db.add_record_from_page([item()], 'search', 'one', ['recipient'])
         self.parser = AvitoParse.__new__(AvitoParse)
         self.parser.db_handler = self.db
@@ -167,7 +167,7 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(self.parser.throttle._queue, [])
 
     def test_each_ad_has_persistent_deadline_not_reset_by_catalog(self):
-        with patch('db_service.time.time', return_value=130):
+        with patch('persistence.ads.time.time', return_value=130):
             self.db.add_record_from_page([item(2)], 'search', 'one')
             self.db.add_record_from_page([item()], 'other-search', 'two')
         self.assertIsNone(self.db.next_ad_for_refresh(60, now=159))
@@ -227,7 +227,7 @@ class RefreshTests(unittest.TestCase):
                 self.parser._refresh_ad(1, Cancellation())
             self.assertEqual(self.db.list_ads('search')[0]['price'], 500)
         self.parser.http.request.side_effect = RuntimeError('attempts exhausted')
-        with patch('db_service.time.time', return_value=200):
+        with patch('persistence.ads.time.time', return_value=200):
             with self.assertRaises(RuntimeError):
                 self.parser._refresh_ad(1, Cancellation())
         self.assertIsNone(self.db.next_ad_for_refresh(60, now=259))
@@ -244,7 +244,7 @@ class RefreshTests(unittest.TestCase):
     def test_unexpected_card_logs_only_schema_and_preserves_existing_data(self):
         self.parser.http.request.return_value = Mock(status_code=200, json=lambda: {
             'error': {'message': 'private cookie password'}, 'private-user': {'id': 12345}})
-        with patch('parser_cls.logger') as log, self.assertRaises(ValueError):
+        with patch('engine.app.logger') as log, self.assertRaises(ValueError):
             self.parser._refresh_ad(1, Cancellation())
         args = log.bind.return_value.warning.call_args.args
         self.assertEqual(args[1:4], (1, 200, 'ValueError'))
@@ -257,7 +257,7 @@ class RefreshTests(unittest.TestCase):
     def test_non_json_diagnostic_does_not_log_body_or_decoder_error(self):
         self.parser.http.request.return_value = Mock(
             status_code=200, json=Mock(side_effect=ValueError('private response body')))
-        with patch('parser_cls.logger') as log, self.assertRaisesRegex(ValueError, 'некорректный JSON'):
+        with patch('engine.app.logger') as log, self.assertRaisesRegex(ValueError, 'некорректный JSON'):
             self.parser._refresh_ad(1, Cancellation())
         self.assertIn('invalid_json', log.bind.return_value.warning.call_args.args[0])
         self.assertNotIn('private', str(log.bind.return_value.warning.call_args))
@@ -268,7 +268,7 @@ class RefreshTests(unittest.TestCase):
         session = Mock()
         session.request.side_effect = [Mock(status_code=439), Mock(status_code=439),
                                        Mock(status_code=200, json=lambda: payload())]
-        with patch('parser.http.client.requests.Session', return_value=session), \
+        with patch('engine.http.client.requests.Session', return_value=session), \
              patch.object(HttpClient, 'get_current_ip', return_value=None):
             client = HttpClient(proxy, max_retries=3, block_threshold=2, retry_delay=0)
             self.parser.http = client
@@ -284,7 +284,7 @@ class RefreshTests(unittest.TestCase):
         proxy = Mock(get_httpx_proxy=Mock(return_value=None))
         session = Mock()
         session.request.return_value = Mock(status_code=404, json=lambda: {'error': {'code': 'item_deleted'}})
-        with patch('parser.http.client.requests.Session', return_value=session), \
+        with patch('engine.http.client.requests.Session', return_value=session), \
              patch.object(HttpClient, 'get_current_ip', return_value=None):
             client = HttpClient(proxy, retry_delay=0)
             self.parser.http = client

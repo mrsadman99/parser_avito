@@ -6,11 +6,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from dto import AvitoConfig, OwnMobileProxyConfig, SshConfig
+from domain.config import AvitoConfig, OwnMobileProxyConfig, SshConfig
 from load_config import _coerce_own_mobile_proxy, load_avito_config
-from parser.proxies.proxy_factory import build_proxy
-from utils import own_mobile_proxy as mobile
-from utils import tinyproxy_forward as forward
+from engine.proxies.proxy_factory import build_proxy
+from mobile_proxy import own_mobile_proxy as mobile
+from mobile_proxy import tinyproxy_forward as forward
 
 
 class ForwardConfigTests(unittest.TestCase):
@@ -187,7 +187,7 @@ class ForwardMonitorTests(unittest.TestCase):
             script.write_text(
                 'import argparse\nfrom pathlib import Path\nimport sys\n'
                 f'sys.path.insert(0, {str(forward.ROOT)!r})\n'
-                'from utils import tinyproxy_forward as f\n'
+                'from mobile_proxy import tinyproxy_forward as f\n'
                 f'f.STATE = Path({str(root / "state.json")!r})\n'
                 f'calls = Path({str(root / "calls.log")!r})\n'
                 'def record(*args):\n'

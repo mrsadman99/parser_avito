@@ -23,8 +23,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import requests
 
-from integrations.notifications.transport import send_with_retries
-from integrations.notifications.utils import escape_markdown_v2
+from notifications.transport import send_with_retries
+from notifications.utils import escape_markdown_v2
 from load_config import load_avito_config
 from proxy_helpers import build_proxies_dict
 

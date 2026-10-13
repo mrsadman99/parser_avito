@@ -13,13 +13,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 # Пакеты, внутри которых обходим каждый *.py и импортируем по точечному имени.
-PACKAGES = ("parser", "server", "integrations", "filters", "utils")
+PACKAGES = ("engine", "server", "notifications", "mobile_proxy", "persistence", "domain", "utils")
 
 # Модули в корне проекта (без AvitoParser.py — GUI на Flet — и entry-точек).
 ROOT_MODULES = (
-    "dto",
-    "models",
-    "db_service",
     "load_config",
     "proxy_helpers",
     "hide_private_data",

@@ -22,9 +22,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from load_config import load_avito_config
-from parser.proxies.proxy import OwnMobileProxy
-from parser.proxies.proxy_factory import build_proxy
-from utils.own_mobile_proxy import (
+from engine.proxies.proxy import OwnMobileProxy
+from engine.proxies.proxy_factory import build_proxy
+from mobile_proxy.own_mobile_proxy import (
     DEFAULT_DEVICE_LOG,
     start_proxy,
     stop_proxy,

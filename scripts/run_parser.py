@@ -2,7 +2,7 @@
 """Запуск парсера с ссылками из веб-БД (для tmux/detached-режима).
 
 Используется run.py, чтобы запустить парсер отдельным процессом. В отличие от
-`python parser_cls.py`, передаёт links_provider из server.store, поэтому
+`python engine/app.py`, передаёт links_provider из persistence.store, поэтому
 подхватывает ссылки, добавленные через веб-интерфейс (а также config.toml).
 
 Запуск:
@@ -23,10 +23,10 @@ def main():
 
     config = load_avito_config("config.toml")
 
-    from server import store
+    from persistence import store
     store.init_db()
 
-    from parser_cls import AvitoParse
+    from engine.app import AvitoParse
 
     parser = AvitoParse(config, links_provider=store.get_all_links)
     try:

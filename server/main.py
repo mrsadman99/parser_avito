@@ -24,10 +24,10 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from db_service import SQLiteDBHandler
-from dto import web_link_key
+from persistence.ads import SQLiteDBHandler
+from domain.config import web_link_key
 from load_config import load_avito_config
-from server import store
+from persistence import store
 
 _config = None
 

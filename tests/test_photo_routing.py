@@ -4,12 +4,12 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from dto import AvitoConfig
-from integrations.notifications.factory import build_notifier
-from integrations.notifications.photos import download_photo
-from integrations.notifications.telegram import TelegramNotifier
-from integrations.notifications.vk import VKNotifier
-from parser.proxies.proxy import OwnMobileProxy
+from domain.config import AvitoConfig
+from notifications.factory import build_notifier
+from notifications.photos import download_photo
+from notifications.telegram import TelegramNotifier
+from notifications.vk import VKNotifier
+from engine.proxies.proxy import OwnMobileProxy
 from proxy_helpers import build_proxies_dict
 
 
@@ -65,7 +65,7 @@ class PhotoRoutingTests(unittest.TestCase):
     def test_telegram_downloads_once_and_uploads_bytes_via_notifier(self):
         notifier = TelegramNotifier('unused', '42', NOTIFIER, photo_proxy=MOBILE)
         with patch('requests.adapters.HTTPAdapter.send', return_value=response()) as get, \
-             patch('integrations.notifications.telegram.requests.post', return_value=response()) as post:
+             patch('notifications.telegram.requests.post', return_value=response()) as post:
             notifier._send_photo(PHOTO_URL, 'caption')
         get.assert_called_once()
         self.assertEqual(get.call_args.args[0].url, PHOTO_URL)
@@ -81,7 +81,7 @@ class PhotoRoutingTests(unittest.TestCase):
         ad = Mock(main_image_url=Mock(return_value=PHOTO_URL))
         with patch.object(notifier, 'format', return_value='caption'), \
              patch('requests.adapters.HTTPAdapter.send', side_effect=requests.ConnectionError('mobile down')), \
-             patch('integrations.notifications.telegram.requests.post', return_value=response()) as post:
+             patch('notifications.telegram.requests.post', return_value=response()) as post:
             notifier.notify_ad(ad)
         post.assert_called_once()
         self.assertTrue(post.call_args.args[0].endswith('/sendMessage'))
@@ -96,7 +96,7 @@ class PhotoRoutingTests(unittest.TestCase):
                    response(payload={'response': 123})]
         with patch.object(notifier, 'format_ad', return_value='caption'), \
              patch('requests.adapters.HTTPAdapter.send', return_value=response()) as get, \
-             patch('integrations.notifications.vk.requests.post', side_effect=results) as post:
+             patch('notifications.vk.requests.post', side_effect=results) as post:
             notifier.notify_ad(ad)
         get.assert_called_once()
         self.assertEqual(get.call_args.kwargs['proxies']['https'], 'http://' + MOBILE)
@@ -108,7 +108,7 @@ class PhotoRoutingTests(unittest.TestCase):
 
     def test_vk_text_uses_notifier_proxy(self):
         notifier = VKNotifier('unused', '42', NOTIFIER, photo_proxy=MOBILE)
-        with patch('integrations.notifications.vk.requests.post', return_value=response()) as post:
+        with patch('notifications.vk.requests.post', return_value=response()) as post:
             notifier.notify_message('text')
         self.assertEqual(post.call_args.kwargs['proxies'], build_proxies_dict(NOTIFIER))
 
@@ -135,7 +135,7 @@ class PhotoRoutingTests(unittest.TestCase):
         config.messengers.tg_token = 'unused'
         config.messengers.tg_chat_id = ['42']
         proxy = OwnMobileProxy(server='127.0.0.1:7777')
-        with patch('integrations.notifications.factory.build_proxy') as build:
+        with patch('notifications.factory.build_proxy') as build:
             notifier = build_notifier(config, avito_proxy=proxy)
         build.assert_not_called()
         self.assertEqual(notifier.notifiers[0].photo_proxy['https'], 'http://127.0.0.1:7777')

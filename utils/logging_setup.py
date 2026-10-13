@@ -14,18 +14,19 @@ def log_category(record):
     if explicit:
         return explicit
     name = record["name"] or ""
-    if name.startswith("integrations.notifications."):
+    if name.startswith("notifications."):
         return "notifications"
-    if name == "parser_cls" or record["file"].name == "parser_cls.py":
+    if name == "engine.app" or record["file"].name == "app.py":
         if record["function"] in {"_notification_cycle", "_deliver_pending_notifications"}:
             return "notifications"
         return "scanning"
-    if name.startswith(("parser.http.", "parser.cookies.", "parser.proxies.")) or name in {
-        "utils.own_mobile_proxy", "utils.adb", "utils.tinyproxy_forward", "proxy_helpers",
+    if name.startswith(("engine.http.", "engine.cookies.", "engine.proxies.")) or name in {
+        "mobile_proxy.own_mobile_proxy", "mobile_proxy.adb", "mobile_proxy.tinyproxy_forward", "proxy_helpers",
     }:
         return "blocking"
-    if name.startswith(("parser.export.", "filters.")) or name in {
-        "parser.url_converter", "parser.request_queue", "parser.mobile_detail", "db_service", "utils.parse_phone",
+    if name.startswith("engine.export.") or name in {
+        "engine.url_converter", "engine.request_queue", "engine.mobile_detail",
+        "engine.filters", "persistence.ads", "utils.parse_phone",
     }:
         return "scanning"
     return None

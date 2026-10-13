@@ -14,22 +14,22 @@ from unittest.mock import Mock, call, patch
 from fastapi.testclient import TestClient
 from loguru import logger
 
-from db_service import SQLiteDBHandler
-from dto import AvitoConfig, LinkConfig, web_link_key
-from integrations.notifications.base import Notifier
-from integrations.notifications.composite import CompositeNotifier, NullNotifier
-from integrations.notifications.telegram import TelegramNotifier
-from integrations.notifications.vk import VKNotifier
-from models import Item, PriceDetailed
-from parser.cancellation import Cancellation, ParseCancelled
-from parser.http.client import HttpClient
-from parser.http.camoufox_client import CamoufoxClient
-from parser.url_converter import AvitoUrlConverter
-from parser.proxies.proxy import NoProxy, ProxyRotationError, ServerProxy, Proxy, ExternalMobileProxy
-from parser.proxies.proxy_factory import build_proxy
-from parser.proxies.rotation import rotate_with_retries
+from persistence.ads import SQLiteDBHandler
+from domain.config import AvitoConfig, LinkConfig, web_link_key
+from notifications.base import Notifier
+from notifications.composite import CompositeNotifier, NullNotifier
+from notifications.telegram import TelegramNotifier
+from notifications.vk import VKNotifier
+from domain.item import Item, PriceDetailed
+from engine.cancellation import Cancellation, ParseCancelled
+from engine.http.client import HttpClient
+from engine.http.camoufox_client import CamoufoxClient
+from engine.url_converter import AvitoUrlConverter
+from engine.proxies.proxy import NoProxy, ProxyRotationError, ServerProxy, Proxy, ExternalMobileProxy
+from engine.proxies.proxy_factory import build_proxy
+from engine.proxies.rotation import rotate_with_retries
 from load_config import load_avito_config
-from server import store
+from persistence import store
 
 
 def ad(ad_id=1, price=500):
@@ -88,7 +88,7 @@ class RegressionTests(unittest.TestCase):
         SQLiteDBHandler._instance = None
         store.init_db()
         self.server = importlib.import_module("server.main")
-        self.parser_module = importlib.import_module("parser_cls")
+        self.parser_module = importlib.import_module("engine.app")
         logger.remove()
         self.client = TestClient(self.server.app)
         self.db = SQLiteDBHandler()
@@ -289,7 +289,7 @@ class RegressionTests(unittest.TestCase):
         throttle.run(lambda: None)
         cancelled = threading.Event()
         requested = Mock()
-        with patch("parser.cancellation.time.sleep", side_effect=lambda _: cancelled.set()):
+        with patch("engine.cancellation.time.sleep", side_effect=lambda _: cancelled.set()):
             with self.assertRaises(ParseCancelled):
                 throttle.run(requested, cancellation=Cancellation(cancelled.is_set))
         requested.assert_not_called()
@@ -326,7 +326,7 @@ class RegressionTests(unittest.TestCase):
         client.block_threshold = 3
         client.retry_delay = 60
         cancelled = threading.Event()
-        with patch("parser.cancellation.time.sleep", side_effect=lambda _: cancelled.set()):
+        with patch("engine.cancellation.time.sleep", side_effect=lambda _: cancelled.set()):
             with self.assertRaises(ParseCancelled):
                 client.request("GET", self.url, cancellation=Cancellation(cancelled.is_set))
         self.assertEqual(client._client.request.call_count, 1)
@@ -459,7 +459,7 @@ class RegressionTests(unittest.TestCase):
         proxy = NoProxy()
         proxy.rotation_attempts = 3
         proxy.rotation_retry_delay = 0
-        with patch("parser.proxies.rotation._rotation_attempt", side_effect=[
+        with patch("engine.proxies.rotation._rotation_attempt", side_effect=[
             (False, "failed"), RuntimeError("failed again"), (True, None),
         ]) as attempt:
             self.assertTrue(rotate_with_retries(proxy))
@@ -469,7 +469,7 @@ class RegressionTests(unittest.TestCase):
         proxy = NoProxy()
         proxy.rotation_attempts = 2
         proxy.rotation_retry_delay = 0
-        with patch("parser.proxies.rotation._rotation_attempt", return_value=(False, "failed")) as attempt:
+        with patch("engine.proxies.rotation._rotation_attempt", return_value=(False, "failed")) as attempt:
             with self.assertRaisesRegex(ProxyRotationError, "после 2 попыток"):
                 rotate_with_retries(proxy)
         self.assertEqual(attempt.call_count, 2)
@@ -478,8 +478,8 @@ class RegressionTests(unittest.TestCase):
         proxy = NoProxy()
         proxy.rotation_retry_delay = 300
         cancelled = threading.Event()
-        with patch("parser.proxies.rotation._rotation_attempt", return_value=(False, "failed")) as attempt, \
-                patch("parser.cancellation.time.sleep", side_effect=lambda _: cancelled.set()):
+        with patch("engine.proxies.rotation._rotation_attempt", return_value=(False, "failed")) as attempt, \
+                patch("engine.cancellation.time.sleep", side_effect=lambda _: cancelled.set()):
             with self.assertRaises(ParseCancelled):
                 rotate_with_retries(proxy, cancellation=Cancellation(cancelled.is_set))
         self.assertEqual(attempt.call_count, 1)
@@ -501,7 +501,7 @@ class RegressionTests(unittest.TestCase):
 
     def test_external_proxy_visits_each_fallback_once_per_attempt(self):
         proxy = ExternalMobileProxy("example.invalid:8080", ["https://first.invalid", "https://second.invalid"])
-        with patch("parser.proxies.proxy.requests.get", side_effect=[
+        with patch("engine.proxies.proxy.requests.get", side_effect=[
             Mock(status_code=500), Mock(status_code=200, json=lambda: {"new_ip": "192.0.2.1"}),
         ]) as get:
             self.assertTrue(proxy.handle_block())
@@ -549,15 +549,15 @@ class RegressionTests(unittest.TestCase):
             parser.fetch_api_data(self.url, 1)
 
     def test_console_parser_exits_nonzero_after_rotation_failure(self):
-        project = str(Path(self.parser_module.__file__).parent)
+        project = str(Path(self.parser_module.__file__).parent.parent)
         code = (
             "import sys\nfrom unittest.mock import Mock, patch\n"
             f"sys.path.insert(0, {project!r})\n"
-            "from parser.proxies.proxy import ProxyRotationError\n"
+            "from engine.proxies.proxy import ProxyRotationError\n"
             "from scripts.run_parser import main\n"
             "parser = Mock()\nparser.parse.side_effect = ProxyRotationError('rotation exhausted')\n"
-            "with patch('scripts.run_parser.load_avito_config'), patch('server.store.init_db'), "
-            "patch('parser_cls.AvitoParse', return_value=parser):\n    main()\n"
+            "with patch('scripts.run_parser.load_avito_config'), patch('persistence.store.init_db'), "
+            "patch('engine.app.AvitoParse', return_value=parser):\n    main()\n"
         )
         result = subprocess.run([sys.executable, "-B", "-c", code], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 1)
@@ -567,8 +567,8 @@ class RegressionTests(unittest.TestCase):
         converter = AvitoUrlConverter(min_request_interval=60)
         cancelled = threading.Event()
         with patch.object(AvitoUrlConverter, "_last_request_at", time.monotonic()), \
-                patch("parser.cancellation.time.sleep", side_effect=lambda _: cancelled.set()), \
-                patch("parser.url_converter.requests.post") as post:
+                patch("engine.cancellation.time.sleep", side_effect=lambda _: cancelled.set()), \
+                patch("engine.url_converter.requests.post") as post:
             with self.assertRaises(ParseCancelled):
                 converter.convert(self.url, cancellation=Cancellation(cancelled.is_set))
         post.assert_not_called()
@@ -582,7 +582,7 @@ class RegressionTests(unittest.TestCase):
             cancelled.set()
             return Mock(status_code=200, json=lambda: {"success": True, "api_url": "https://example.invalid"})
 
-        with patch("parser.url_converter.requests.post", side_effect=respond) as post:
+        with patch("engine.url_converter.requests.post", side_effect=respond) as post:
             with self.assertRaises(ParseCancelled):
                 converter.convert(self.url, cancellation=Cancellation(cancelled.is_set))
             self.assertEqual(converter.convert(self.url), "https://example.invalid")
@@ -706,7 +706,7 @@ class RegressionTests(unittest.TestCase):
         self.db = SQLiteDBHandler()
         resumed = self.parser(notifier)
         failure.fail = False
-        with patch("db_service.time.time", return_value=time.time() + 61):
+        with patch("persistence.ads.time.time", return_value=time.time() + 61):
             resumed._deliver_pending_notifications()
         self.assertEqual(success.calls, [1])
         self.assertEqual(failure.calls, [1, 1])
@@ -727,7 +727,7 @@ class RegressionTests(unittest.TestCase):
         claimed = self.db.claim_notification(["recipient"])
         self.assertIsNotNone(claimed)
         self.assertIsNone(self.db.claim_notification(["recipient"]))
-        with patch("db_service.time.time", return_value=time.time() + 601):
+        with patch("persistence.ads.time.time", return_value=time.time() + 601):
             retried = self.db.claim_notification(["recipient"])
         self.assertEqual(claimed["id"], retried["id"])
 
@@ -779,7 +779,7 @@ class RegressionTests(unittest.TestCase):
 
     def test_vk_api_error_is_not_reported_as_delivery_success(self):
         notifier = VKNotifier("test", "42")
-        with patch("integrations.notifications.vk.send_with_retries", return_value=Mock(
+        with patch("notifications.vk.send_with_retries", return_value=Mock(
                 json=lambda: {"error": {"error_code": 901, "error_msg": "Denied"}})):
             with self.assertRaises(RuntimeError):
                 notifier.notify(ad=ad())

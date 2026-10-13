@@ -3,9 +3,9 @@ import json
 import re
 from loguru import logger
 
-from dto import AvitoConfig
-from integrations.notifications.transport import send_with_retries
-from models import Item
+from domain.config import AvitoConfig
+from notifications.transport import send_with_retries
+from domain.item import Item
 
 
 class ParsePhone:

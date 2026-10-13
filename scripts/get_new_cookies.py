@@ -95,7 +95,7 @@ def load_config_defaults(config_path: str):
     """
     try:
         from load_config import load_avito_config
-        from parser.proxies.proxy_factory import build_proxy
+        from engine.proxies.proxy_factory import build_proxy
     except Exception as err:
         print(f"⚠️ Не удалось импортировать модули парсера: {err}", file=sys.stderr)
         return {}
@@ -106,7 +106,7 @@ def load_config_defaults(config_path: str):
         print(f"⚠️ Не удалось загрузить {config_path}: {err}", file=sys.stderr)
         return {}
 
-    from utils.own_mobile_proxy import ensure_own_mobile_proxy
+    from mobile_proxy.own_mobile_proxy import ensure_own_mobile_proxy
     ensure_own_mobile_proxy(config, config_path=config_path)
     proxy_obj = build_proxy(config)
     own_proxy = proxy_obj.get_spfa_proxy_string() if proxy_obj is not None else None

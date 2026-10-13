@@ -5,8 +5,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from dto import OwnMobileProxyConfig
-from utils.tinyproxy_forward import watch_forward
+from domain.config import OwnMobileProxyConfig
+from mobile_proxy.tinyproxy_forward import watch_forward
 
 
 def main():
