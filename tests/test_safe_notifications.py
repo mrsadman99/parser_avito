@@ -74,15 +74,19 @@ class SafeNotificationsTests(unittest.TestCase):
         self.assertNotIn(self.token, ''.join(self.messages))
 
     def test_photo_diagnostics_keep_route_without_proxy_credentials(self):
-        notifier = TelegramNotifier('unused', 'unused', proxy='login:secret@127.0.0.1:5222')
-        with patch('requests.utils.get_environ_proxies', return_value={}), \
-             patch('integrations.notifications.telegram.requests.get', side_effect=requests.exceptions.SSLError('EOF')) as get:
+        notifier = TelegramNotifier('unused', 'unused', proxy='127.0.0.1:5222',
+                                    photo_proxy='login:secret@127.0.0.1:8888')
+        with patch('integrations.notifications.photos.requests.Session') as factory:
+            session = factory.return_value.__enter__.return_value
+            session.get.side_effect = requests.exceptions.SSLError('EOF')
             with self.assertRaises(requests.exceptions.SSLError):
                 notifier._download_photo('https://90.img.avito.st/image/test')
         output = ''.join(self.messages)
-        self.assertIn('http://127.0.0.1:5222', output)
+        self.assertIn('http://127.0.0.1:8888', output)
+        self.assertIn('avito_proxy', output)
         self.assertIn('SSLError', output)
         self.assertNotIn('secret', output)
         self.assertNotIn('login', output)
-        self.assertNotIn('verify', get.call_args.kwargs)
-        self.assertEqual(get.call_args.kwargs['proxies'], notifier.proxy)
+        self.assertNotIn('verify', session.get.call_args.kwargs)
+        session.proxies.update.assert_called_once_with(notifier.photo_proxy)
+        self.assertFalse(session.trust_env)

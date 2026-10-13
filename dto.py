@@ -135,6 +135,8 @@ class AvitoConfig:
     use_bypass_api: bool = False
     cookies_api_key: str = None
     purchase_cooldown: int = 600
+    spfa_unblock_timeout: float = 300.0
+    spfa_unblock_check_interval: float = 30.0
     output_dir: Path = Path("result")
     own_cookies: bool = False   # true — свои cookies, получаются GET к Avito через прокси (fetch_cookies)
     parse_phone: bool = False
@@ -147,6 +149,13 @@ class AvitoConfig:
     open_full_ad: bool = False
 
     def __post_init__(self):
+        for name in ('spfa_unblock_timeout', 'spfa_unblock_check_interval'):
+            value = getattr(self, name)
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not math.isfinite(value) or value <= 0):
+                raise ValueError(f'{name} должен быть конечным числом > 0')
+        if self.spfa_unblock_check_interval >= self.spfa_unblock_timeout:
+            raise ValueError('spfa_unblock_check_interval должен быть меньше spfa_unblock_timeout')
         if (isinstance(self.pause_general, bool)
                 or not isinstance(self.pause_general, (int, float))
                 or not math.isfinite(self.pause_general) or self.pause_general < 0):

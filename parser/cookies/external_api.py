@@ -5,7 +5,7 @@ from pathlib import Path
 import requests
 from loguru import logger
 
-from parser.cookies.base import CookiesProvider
+from parser.cookies.base import CookiesProvider, UnblockState
 from parser.proxies.proxy import ProxyRotationError
 from proxy_helpers import build_proxies_dict
 
@@ -39,12 +39,11 @@ class ExternalApiCookiesProvider(CookiesProvider):
         self.mobile: bool | None = None
 
         self.unblock_started_at: float | None = None
-        self.UNBLOCK_TIMEOUT = 300  # 5 минут
+        self.UNBLOCK_TIMEOUT = config.spfa_unblock_timeout
+        self.unblock_check_interval = config.spfa_unblock_check_interval
         self.PAUSE_FOR_ERROR = 120 # 2 минуты
         self.NOT_BALANCE = 300 # 5 минуты
-        self.WAIT_FIRST_FOR_UNBLOCK = 5  # 5 сек, пауза для первой разблокировки
         self.WAIT_FOR_NEW = 3  # 3 сек, пауза после покупки для стабильности
-        self.WAIT_FOR_UNBLOCK = 10 # пауза при долгой разблокировке
 
         self.status_history: list[int] = []  # новые: последние коды
         self.last_purchase_at: float | None = None  # новые: время последней покупки
@@ -89,6 +88,10 @@ class ExternalApiCookiesProvider(CookiesProvider):
         if code is None:
             return
 
+        if 200 <= code < 300 and self.unblock_started_at is not None:
+            self.unblock_started_at = None
+            logger.info(f"✅ Avito ответил успешно; ожидание разблокировки завершено | id={self.last_id}")
+
         response_cookies = dict(response.cookies)
         if response_cookies:
             if self.last_cookies is None:
@@ -107,6 +110,16 @@ class ExternalApiCookiesProvider(CookiesProvider):
         if response_cookies or code != last_code or code in (403, 429, 439) or last_code is None:
             self._save_to_disk()
 
+    def get_unblock_state(self) -> UnblockState | None:
+        if self.unblock_started_at is None:
+            return None
+        return UnblockState(self.unblock_started_at + self.UNBLOCK_TIMEOUT,
+                            self.unblock_check_interval)
+
+    def expire_unblock(self) -> None:
+        self.unblock_started_at = None
+        logger.warning('Истёк срок ожидания SPFA; текущий запрос завершается без новой смены IP')
+
     def handle_block(self):
         """
         Пытаемся разблокировать cookies.
@@ -114,6 +127,14 @@ class ExternalApiCookiesProvider(CookiesProvider):
         """
 
         now = time.time()
+
+        # Активная задача имеет приоритет над покупкой cookies и новой разблокировкой.
+        state = self.get_unblock_state()
+        if state is not None:
+            if time.monotonic() < state.deadline:
+                logger.info('SPFA уже выполняет разблокировку; IP и cookies сохраняются')
+                return
+            self.expire_unblock()
 
         # ---- Нет cookies вообще ----
         if not self.last_id:
@@ -138,22 +159,6 @@ class ExternalApiCookiesProvider(CookiesProvider):
             self._get_new_cookies()
             return
 
-        # ---- Уже ждём разблокировку ----
-        if self.unblock_started_at:
-            elapsed = now - self.unblock_started_at
-
-            if elapsed < self.UNBLOCK_TIMEOUT:
-                logger.info(
-                    f"⏳ Ожидаем завершения разблокировки | id={self.last_id} | прошло={int(elapsed)}с"
-                )
-
-                return
-
-            logger.warning(
-                f"⌛ Превышено время ожидания разблокировки | id={self.last_id}"
-            )
-            self.unblock_started_at = None  # сбрасываем и пробуем дальше
-
         logger.info(f"🔓 Пытаемся разблокировать cookies | id={self.last_id}")
 
         try:
@@ -177,16 +182,14 @@ class ExternalApiCookiesProvider(CookiesProvider):
 
         # ---- Сервер принял задачу ----
         if res.status_code in (200, 202):
-            self.unblock_started_at = now
+            self.unblock_started_at = time.monotonic()
             logger.info(f"⏳ Разблокировка запущена | id={self.last_id}")
-            time.sleep(self.WAIT_FIRST_FOR_UNBLOCK)
             return
 
         # ---- Уже в процессе ----
         if res.status_code == 409:
-            self.unblock_started_at = self.unblock_started_at or now
+            self.unblock_started_at = time.monotonic()
             logger.info(f"⏳ Разблокировка уже выполняется | id={self.last_id}")
-            time.sleep(self.WAIT_FOR_UNBLOCK)
             return
 
         # ---- Слишком поздно ----
@@ -297,6 +300,7 @@ class ExternalApiCookiesProvider(CookiesProvider):
 
         self.last_purchase_at = time.time()  # новое: сохраняем дату и время покупки
         self.status_history.clear()  # сбрасываем историю последних кодов после покупки
+        self.unblock_started_at = None  # ожидание относилось к предыдущему набору cookies
 
         logger.info(f"✅ Cookies успешно получены | id={self.last_id}")
 

@@ -241,6 +241,28 @@ class RefreshTests(unittest.TestCase):
         self.assertTrue(self.parser._shutdown.is_set())
         self.assertEqual(len(self.db.list_ads('search')), 1)
 
+    def test_unexpected_card_logs_only_schema_and_preserves_existing_data(self):
+        self.parser.http.request.return_value = Mock(status_code=200, json=lambda: {
+            'error': {'message': 'private cookie password'}, 'private-user': {'id': 12345}})
+        with patch('parser_cls.logger') as log, self.assertRaises(ValueError):
+            self.parser._refresh_ad(1, Cancellation())
+        args = log.bind.return_value.warning.call_args.args
+        self.assertEqual(args[1:4], (1, 200, 'ValueError'))
+        schema = args[4]
+        for secret in ('private', 'cookie', 'password', '12345'):
+            self.assertNotIn(secret, schema)
+        self.assertIn('"message":"string"', schema)
+        self.assertEqual(self.db.list_ads('search')[0]['price'], 500)
+
+    def test_non_json_diagnostic_does_not_log_body_or_decoder_error(self):
+        self.parser.http.request.return_value = Mock(
+            status_code=200, json=Mock(side_effect=ValueError('private response body')))
+        with patch('parser_cls.logger') as log, self.assertRaisesRegex(ValueError, 'некорректный JSON'):
+            self.parser._refresh_ad(1, Cancellation())
+        self.assertIn('invalid_json', log.bind.return_value.warning.call_args.args[0])
+        self.assertNotIn('private', str(log.bind.return_value.warning.call_args))
+        self.assertEqual(self.db.list_ads('search')[0]['price'], 500)
+
     def test_refresh_uses_shared_http_block_recovery_and_attempt_budget(self):
         proxy = Mock(get_httpx_proxy=Mock(return_value=None), rotate_with_retries=Mock(return_value=True))
         session = Mock()

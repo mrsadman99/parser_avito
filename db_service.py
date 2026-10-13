@@ -6,6 +6,8 @@ from pathlib import Path
 
 from models import Item
 
+NOTIFICATION_MAX_ATTEMPTS = 10
+
 
 def now_iso() -> str:
     """Текущее время в формате ISO (UTC)."""
@@ -130,9 +132,20 @@ class SQLiteDBHandler:
                     payload TEXT NOT NULL,
                     sent INTEGER NOT NULL DEFAULT 0,
                     retry_at REAL NOT NULL DEFAULT 0,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    failed INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT,
                     UNIQUE(source_key, ad_id, price, recipient)
                 )
             """)
+            notification_columns = {row[1] for row in cursor.execute("PRAGMA table_info(notification_outbox)")}
+            for name, definition in {
+                "attempts": "INTEGER NOT NULL DEFAULT 0",
+                "failed": "INTEGER NOT NULL DEFAULT 0",
+                "last_error": "TEXT",
+            }.items():
+                if name not in notification_columns:
+                    cursor.execute(f"ALTER TABLE notification_outbox ADD COLUMN {name} {definition}")
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS notification_outbox_pending
                 ON notification_outbox(recipient, retry_at) WHERE sent = 0
@@ -271,18 +284,28 @@ class SQLiteDBHandler:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(f"""
                 SELECT * FROM notification_outbox
-                WHERE sent = 0 AND retry_at <= ?
+                WHERE sent = 0 AND failed = 0 AND attempts < ? AND retry_at <= ?
                   AND recipient IN ({','.join('?' for _ in recipients)})
                 ORDER BY id LIMIT ?
-            """, [time.time(), *recipients, limit]).fetchall()
+            """, [NOTIFICATION_MAX_ATTEMPTS, time.time(), *recipients, limit]).fetchall()
         return [dict(row) for row in rows]
 
-    def finish_notification(self, notification_id: int, success: bool) -> None:
+    def finish_notification(self, notification_id: int, success: bool, *,
+                            permanent: bool = False, error: str | None = None) -> bool:
+        """Сохраняет результат. True означает прекращение автоматических повторов."""
         with sqlite3.connect(self.db_name) as conn:
+            row = conn.execute("SELECT attempts FROM notification_outbox WHERE id = ?",
+                               (notification_id,)).fetchone()
+            if row is None:
+                return False
+            failed = not success and (permanent or row[0] >= NOTIFICATION_MAX_ATTEMPTS)
             conn.execute(
-                "UPDATE notification_outbox SET sent = ?, retry_at = ? WHERE id = ?",
-                (int(success), 0 if success else time.time() + 60, notification_id),
+                """UPDATE notification_outbox SET sent = ?, failed = ?, retry_at = ?, last_error = ?
+                   WHERE id = ?""",
+                (int(success), int(failed), 0 if success or failed else time.time() + 60,
+                 None if success else error, notification_id),
             )
+        return failed
 
     def claim_notification(self, recipients: list[str]) -> dict | None:
         """Резервирует одну отправку; после падения процесса она вернётся через 10 минут."""
@@ -291,17 +314,24 @@ class SQLiteDBHandler:
         with sqlite3.connect(self.db_name) as conn:
             conn.row_factory = sqlite3.Row
             conn.execute("BEGIN IMMEDIATE")
+            now = time.time()
+            # Последняя разрешённая попытка могла оборваться вместе с процессом.
+            # До истечения lease не трогаем ещё выполняющуюся отправку.
+            conn.execute("""UPDATE notification_outbox SET failed = 1,
+                last_error = COALESCE(last_error, 'Лимит попыток исчерпан; результат последней отправки неизвестен')
+                WHERE sent = 0 AND failed = 0 AND attempts >= ? AND retry_at <= ?""",
+                (NOTIFICATION_MAX_ATTEMPTS, now))
             row = conn.execute(f"""
                 SELECT * FROM notification_outbox
-                WHERE sent = 0 AND retry_at <= ?
+                WHERE sent = 0 AND failed = 0 AND attempts < ? AND retry_at <= ?
                   AND recipient IN ({','.join('?' for _ in recipients)})
                 ORDER BY id LIMIT 1
-            """, [time.time(), *recipients]).fetchone()
+            """, [NOTIFICATION_MAX_ATTEMPTS, now, *recipients]).fetchone()
             if row is None:
                 return None
-            conn.execute("UPDATE notification_outbox SET retry_at = ? WHERE id = ?",
-                         (time.time() + 600, row["id"]))
-        return dict(row)
+            conn.execute("UPDATE notification_outbox SET retry_at = ?, attempts = attempts + 1 WHERE id = ?",
+                         (now + 600, row["id"]))
+        return {**dict(row), "attempts": row["attempts"] + 1, "retry_at": now + 600}
 
     # Поля, которые можно перезаписывать из detail-страницы
     _REFRESH_FIELDS = (

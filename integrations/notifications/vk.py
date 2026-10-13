@@ -4,14 +4,18 @@ import requests
 from loguru import logger
 
 from integrations.notifications.base import Notifier
+from integrations.notifications.photos import download_photo
 from integrations.notifications.transport import send_with_retries
 from models import Item
+from proxy_helpers import build_proxies_dict
 
 
 class VKNotifier(Notifier):
-    def __init__(self, vk_token: str, user_id: str | int):
+    def __init__(self, vk_token: str, user_id: str | int, proxy: str = None, *, photo_proxy: str = None):
         self.vk_token = vk_token
         self.user_id = user_id
+        self.proxy = build_proxies_dict(proxy)
+        self.photo_proxy = build_proxies_dict(photo_proxy)
         self.delivery_key = "vk:" + hashlib.sha256(
             str(user_id).encode()
         ).hexdigest()
@@ -31,6 +35,7 @@ class VKNotifier(Notifier):
                     "v": "5.199"
                 },
                 timeout=10,
+                proxies=self.proxy,
             )
 
         send_with_retries(_send)
@@ -62,6 +67,7 @@ class VKNotifier(Notifier):
                 data=payload,
                 headers=headers,
                 timeout=10,
+                proxies=self.proxy,
             )
 
         response = send_with_retries(_send)
@@ -92,6 +98,7 @@ class VKNotifier(Notifier):
                 headers=headers,
                 params={"v": "5.199"},
                 timeout=30,
+                proxies=self.proxy,
             ).json()
 
             if "error" in upload_server_response:
@@ -100,11 +107,12 @@ class VKNotifier(Notifier):
 
             upload_url = upload_server_response["response"]["upload_url"]
 
-            photo_data = requests.get(photo_url, timeout=10).content
+            photo_data = download_photo(photo_url, self.photo_proxy)
             upload_response = requests.post(
                 upload_url,
                 files={"photo": ("photo.jpg", photo_data, "image/jpeg")},
                 timeout=30,
+                proxies=self.proxy,
             ).json()
 
             if not upload_response.get("photo") or upload_response.get("photo") == "[]":
@@ -121,6 +129,7 @@ class VKNotifier(Notifier):
                     "v": "5.199"
                 },
                 timeout=30,
+                proxies=self.proxy,
             ).json()
 
             if "error" in save_response:

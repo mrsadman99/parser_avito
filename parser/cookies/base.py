@@ -1,8 +1,21 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Dict
 
 
+@dataclass(frozen=True)
+class UnblockState:
+    deadline: float  # monotonic clock, not wall time
+    check_interval: float
+
+
 class CookiesProvider(ABC):
+
+    def get_unblock_state(self) -> UnblockState | None:
+        return None
+
+    def expire_unblock(self) -> None:
+        """Завершить локальное ожидание после истечения срока."""
 
     @abstractmethod
     def get(self) -> Dict[str, str]:
@@ -36,4 +49,3 @@ class CookiesProvider(ABC):
         own_cookies переопределяет: полностью перевыпускает куки под новый IP.
         """
         pass
-

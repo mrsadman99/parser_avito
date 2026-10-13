@@ -5,12 +5,18 @@ HttpClient (curl_cffi) и CamoufoxClient (антидетект-браузер) �
 (транспорт, сброс сессии, что считать ретрай-ошибкой) вынесены в хуки.
 """
 from abc import ABC, abstractmethod
+import time
 
 import requests
 from loguru import logger
 
 from parser.cancellation import Cancellation, ParseCancelled
+from parser.cookies.base import UnblockState
 from parser.proxies.proxy import ProxyRotationError
+
+
+class UnblockTimeoutError(RuntimeError):
+    """SPFA не восстановил доступ за отведённое время."""
 
 
 class BaseHttpClient(ABC):
@@ -81,8 +87,16 @@ class BaseHttpClient(ABC):
                 continue
         return None
 
+    def _unblock_state(self) -> UnblockState | None:
+        state = self.cookies.get_unblock_state() if self.cookies else None
+        return state if isinstance(state, UnblockState) else None
+
     def _rotate(self, cancellation: Cancellation) -> None:
         """Смена IP, обновление cookies и пересоздание сессии."""
+        state = self._unblock_state()
+        if state is not None and time.monotonic() < state.deadline:
+            logger.info('SPFA: смена IP отложена до завершения активной разблокировки')
+            return
         try:
             rotated = self.proxy.rotate_with_retries(cancellation=cancellation) if self.proxy else False
         except (ParseCancelled, ProxyRotationError):
@@ -117,10 +131,35 @@ class BaseHttpClient(ABC):
         current_ip = self.get_current_ip(cancellation=cancellation)
         logger.info(f"Запрос {method.upper()} {url} — IP: {current_ip or 'не определён'}")
 
-        for attempt in range(1, self.max_retries + 1):
+        attempt = 0
+        while True:
             cancellation.checkpoint()
+            state = self._unblock_state()
+            probe = state is not None
+            if probe:
+                remaining = state.deadline - time.monotonic()
+                if remaining > 0:
+                    delay = min(state.check_interval, remaining)
+                    logger.info('SPFA: контрольный запрос через {:.1f}с; до конца ожидания {:.1f}с; IP сохраняется',
+                                delay, remaining)
+                    cancellation.wait(delay)
+                remaining = state.deadline - time.monotonic()
+                if remaining <= 0:
+                    self.cookies.expire_unblock()
+                    self._block_attempts = 0
+                    status = getattr(self.last_response, 'status_code', None)
+                    raise UnblockTimeoutError(
+                        f'Истёк срок ожидания SPFA для {url}; последний HTTP-статус: {status}'
+                    ) from last_exc
+            else:
+                if attempt >= self.max_retries:
+                    break
+                attempt += 1
             try:
-                response = self._send(method, url, **kwargs)
+                request_kwargs = dict(kwargs)
+                if probe:
+                    request_kwargs['timeout'] = min(self.timeout, remaining)
+                response = self._send(method, url, **request_kwargs)
                 self.last_response = response
                 cancellation.checkpoint()
                 if self.cookies:
@@ -135,11 +174,12 @@ class BaseHttpClient(ABC):
                         f"Запрос заблокирован ({status}) к {url}, "
                         f"попытка {self._block_attempts}"
                     )
-                    if self._block_attempts >= self.block_threshold:
+                    if not probe and self._block_attempts >= self.block_threshold:
                         logger.warning("Достигнут лимит блокировок, запускается обработка")
                         self._rotate(cancellation)
                         self._block_attempts = 0
-                    cancellation.wait(self.retry_delay)
+                    if not probe and self._unblock_state() is None:
+                        cancellation.wait(self.retry_delay)
                     continue
 
                 self._block_attempts = 0
@@ -157,8 +197,10 @@ class BaseHttpClient(ABC):
                 last_exc = err
                 self._block_attempts = 0
                 self.error_count += 1
-                logger.warning(f"Request error (attempt {attempt}): {err}")
+                label = 'SPFA control' if probe else f'attempt {attempt}'
+                logger.warning(f"Request error ({label}): {err}")
                 self._on_error(err)
-                cancellation.wait(self.retry_delay)
+                if not probe and self._unblock_state() is None:
+                    cancellation.wait(self.retry_delay)
 
         raise RuntimeError("HTTP запросы были неуспешными") from last_exc

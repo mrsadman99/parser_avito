@@ -8,7 +8,15 @@ import requests
 from loguru import logger
 from hide_private_data import redact_log_text
 
-RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+RETRY_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
+
+
+def is_permanent_delivery_error(error: Exception) -> bool:
+    """Ошибки HTTP-запроса, которые повтор той же отправки не исправит."""
+    response = getattr(error, 'response', None)
+    return (isinstance(error, requests.HTTPError) and response is not None
+            and 400 <= response.status_code < 500
+            and response.status_code not in RETRY_STATUS_CODES)
 
 
 def safe_request_error(error):
@@ -55,8 +63,8 @@ def send_with_retries(
             e._log_sensitive = getattr(e, '_log_sensitive', False) or redact_log_text(str(e)) != str(e)
             e.args = (safe_request_error(e),)
             resp = e.response
-            # 4xx errors other than 429 are client errors — retrying won't help
-            if resp is not None and 400 <= resp.status_code < 500 and resp.status_code not in RETRY_STATUS_CODES:
+            # Permanent errors must not re-enter the persistent delivery queue either.
+            if is_permanent_delivery_error(e):
                 logger.error(
                     f"[notify] non-retryable client error {resp.status_code}, aborting: {e}"
                 )

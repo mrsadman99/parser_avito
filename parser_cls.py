@@ -11,8 +11,9 @@ from pydantic import ValidationError
 from db_service import SQLiteDBHandler, now_iso
 from dto import Proxy, AvitoConfig, ParseTarget
 from filters.ads_filter import AdsFilter
-from hide_private_data import log_config
+from hide_private_data import log_config, redact_log_text
 from integrations.notifications.factory import build_notifier
+from integrations.notifications.transport import is_permanent_delivery_error
 from load_config import load_avito_config
 from models import ItemsResponse, Item
 from parser.cookies.factory import build_cookies_provider
@@ -26,6 +27,7 @@ from parser.proxies.proxy import ProxyRotationError
 from parser.url_converter import AvitoUrlConverter
 from parser.request_queue import RequestThrottle
 from parser.mobile_detail import parse_mobile_detail
+from parser.response_diagnostics import json_structure
 from utils.parse_phone import ParsePhone
 from utils.own_mobile_proxy import ensure_own_mobile_proxy
 from utils.logging_setup import configure_app_logging
@@ -48,7 +50,7 @@ class AvitoParse:
         self.proxy = build_proxy(self.config)
         self.cookies_provider = build_cookies_provider(config=config, proxy=self.proxy)
         self.db_handler = SQLiteDBHandler()
-        self.notifier = build_notifier(config=config)
+        self.notifier = build_notifier(config=config, avito_proxy=self.proxy)
         self.result_storage = None
         self.url_converter = AvitoUrlConverter()
         self.stop_event = stop_event
@@ -465,7 +467,22 @@ class AvitoParse:
             cancellation.checkpoint()
             if response.status_code not in (200, 404, 410):
                 raise ValueError(f"Неожиданный статус карточки: {response.status_code}")
-            detail = parse_mobile_detail(response.json(), ad_id)
+            try:
+                payload = response.json()
+            except ValueError:
+                logger.bind(log_category='scanning').warning(
+                    'Неожиданный ответ карточки {}: HTTP {}; invalid_json; тело не сохраняется',
+                    ad_id, response.status_code,
+                )
+                raise ValueError('API карточки вернул некорректный JSON') from None
+            try:
+                detail = parse_mobile_detail(payload, ad_id)
+            except (ValueError, TypeError, KeyError, AttributeError) as err:
+                logger.bind(log_category='scanning').warning(
+                    'Неожиданный ответ карточки {}: HTTP {}; {}; JSON structure={}',
+                    ad_id, response.status_code, type(err).__name__, json_structure(payload),
+                )
+                raise
             if detail['removed']:
                 self.db_handler.delete_ad(ad_id)
                 logger.info(f"Объявление {ad_id} снято, удалено из базы")
@@ -506,8 +523,16 @@ class AvitoParse:
                 ad = Item.model_validate_json(entry["payload"])
                 targets[entry["recipient"]].notify(ad=ad)
             except Exception as err:
-                logger.warning(f"Уведомление {entry['id']} не доставлено, повтор через 60 сек.: {err}")
-                self.db_handler.finish_notification(entry["id"], success=False)
+                permanent = is_permanent_delivery_error(err) or isinstance(err, ValidationError)
+                stopped = self.db_handler.finish_notification(
+                    entry["id"], success=False, permanent=permanent,
+                    error=redact_log_text(str(err))[:2000],
+                )
+                if stopped:
+                    reason = "постоянная ошибка" if permanent else "исчерпан лимит попыток"
+                    logger.error(f"Уведомление {entry['id']}: {reason}; автоматические повторы прекращены: {err}")
+                else:
+                    logger.warning(f"Уведомление {entry['id']} не доставлено, повтор через 60 сек.: {err}")
             else:
                 self.db_handler.finish_notification(entry["id"], success=True)
                 logger.debug(f"Уведомление {entry['id']}: доставка подтверждена")
