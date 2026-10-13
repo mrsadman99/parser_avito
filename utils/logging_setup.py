@@ -46,7 +46,14 @@ def json_log_format(record):
         "exception": "" if exception is None else "".join(traceback.format_exception(
             exception.type, exception.value, exception.traceback)),
     }
-    # extra может содержать произвольные данные пользователя: в JSON его не копируем.
+    # Только известные поля диагностики; произвольный extra не экспортируем.
+    for key in ("catalog_snapshot", "catalog_url", "catalog_page", "catalog_query",
+                "catalog_status", "catalog_items", "catalog_ads", "catalog_count",
+                "catalog_total_count", "catalog_main_count"):
+        if key in record["extra"]:
+            value = record["extra"][key]
+            if value is None or isinstance(value, (str, int, float)):
+                event[key] = value
     record["extra"]["_json_line"] = json.dumps(
         {key: hide_private_data.redact_log_text(value) if isinstance(value, str) else value
          for key, value in event.items()}, ensure_ascii=False,

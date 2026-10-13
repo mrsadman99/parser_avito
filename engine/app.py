@@ -28,6 +28,7 @@ from engine.url_converter import AvitoUrlConverter
 from engine.request_queue import RequestThrottle
 from engine.mobile_detail import parse_mobile_detail
 from engine.response_diagnostics import json_structure
+from engine.catalog_snapshots import extract_catalog, save_catalog_response
 from utils.parse_phone import ParsePhone
 from mobile_proxy.own_mobile_proxy import ensure_own_mobile_proxy
 from utils.logging_setup import configure_app_logging
@@ -172,7 +173,10 @@ class AvitoParse:
         try:
             response = self._request(page_url, cancellation=cancellation)
             self.good_request_count += 1
-            return response.json()
+            payload = response.json()
+            save_catalog_response(payload, url=page_url, page=page,
+                                  status_code=response.status_code)
+            return payload
         except (ParseCancelled, ProxyRotationError):
             raise
         except Exception as err:
@@ -182,25 +186,7 @@ class AvitoParse:
 
     @staticmethod
     def _extract_api_catalog(payload: dict) -> dict:
-        if not isinstance(payload, dict):
-            return {}
-
-        result = payload.get("result")
-        candidates = [
-            payload.get("catalog"),
-            result.get("catalog") if isinstance(result, dict) else None,
-            result,
-            payload,
-        ]
-        return next(
-            (
-                candidate
-                for candidate in candidates
-                if isinstance(candidate, dict)
-                and isinstance(candidate.get("items"), list)
-            ),
-            {},
-        )
+        return extract_catalog(payload)
     @staticmethod
     def _query_label(url: str) -> str:
         """Извлекает поисковую строку (q=) из ссылки Avito для логов."""

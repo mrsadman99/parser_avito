@@ -4,8 +4,13 @@ datasources:
     uid: avito-loki
     type: loki
     access: proxy
-    url: http://loki:3100
+    url: http://log-gateway:8080
     isDefault: true
     editable: false
     jsonData:
       maxLines: 1000
+      derivedFields:
+        - name: CatalogJSON
+          matcherRegex: 'catalog_snapshot=([0-9]{4}-[0-9]{2}-[0-9]{2}/[0-9]{12}_[a-f0-9]{32}\.json)'
+          url: '${GF_SERVER_ROOT_URL}api/datasources/proxy/uid/avito-loki/snapshots/$${__value.raw}'
+          urlDisplayLabel: 'Открыть полный JSON'

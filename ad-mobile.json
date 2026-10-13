@@ -1,0 +1,15 @@
+{
+  "id": null,
+  "title": null,
+  "description": null,
+  "price": null,
+  "ad_url": null,
+  "city": null,
+  "address": null,
+  "has_delivery": null,
+  "photo_url": null,
+  "seller_rating": null,
+  "seller_reviews": null,
+  "available": false,
+  "removed": false
+}

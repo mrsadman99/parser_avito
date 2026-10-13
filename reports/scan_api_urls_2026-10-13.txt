@@ -1,0 +1,61 @@
+Точные URL запросов JSON из logs/events.jsonl
+Дата запуска: 2026-10-13. Время ниже — UTC.
+Это наблюдавшиеся запросы, а не результаты повторной проверки.
+
+ASUS PRIME X470-PRO | page=1 | первый запрос 2026-10-13T03:28:29.325197+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=6&context=H4sIAAAAAAAA_3SRQZPaIBzFv0uuvQBZdc2eVnZhSdNsExuE3ITYJDaJVlDUTr97B9dMT3vizwz_997vsY5Q9MdEEESB3h0OG23b3RA8mehh-hgFbLCa9WRb0e6kOte-d67VIR9KxK8VcW1CXFuKxilKjlLke4Ummm33mlncgOSQnSx9BonI7PIlM5Yu_Gzm-EuC_R07kLgaJGFezzECSZgZ_JKdLAbjfExxKN4K942-OiDDvLb4Acii9tompXjUA_L2duLz-UyanhuJuC1XEyAwmwocN7Kfo5LfM1N-Xa-qI-_5RaP_bBLNL7rnH7wtbBTll5FT0e64DlPPpzbQtbrn52r10cO772kgsBTx5O63KCD_wchiuSwgYaQG6fXZFiT-LjAzAsdGobS5-fzqXv1Ous3O6bV2P5dnzYa827zlY5cKyFlmKuyAfPyEnY66thT5TqH77pB3inKnwhgIHM-FAK3_XBgFl9s5jYKvs6Jj9XTWwP32Nyz64OnvvwAAAP__qzefwxUCAAA&localPriority=0&locationId=641780&presentationType=serp&query=ASUS+PRIME+X470-PRO&sort=default&page=1
+
+ASUS PRIME X470-PRO | page=2 | первый запрос 2026-10-13T03:36:55.838494+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=6&context=H4sIAAAAAAAA_3SRQZPaIBzFv0uuvQBZdc2eVnZhSdNsExuE3ITYJDaJVlDUTr97B9dMT3vizwz_997vsY5Q9MdEEESB3h0OG23b3RA8mehh-hgFbLCa9WRb0e6kOte-d67VIR9KxK8VcW1CXFuKxilKjlLke4Ummm33mlncgOSQnSx9BonI7PIlM5Yu_Gzm-EuC_R07kLgaJGFezzECSZgZ_JKdLAbjfExxKN4K942-OiDDvLb4Acii9tompXjUA_L2duLz-UyanhuJuC1XEyAwmwocN7Kfo5LfM1N-Xa-qI-_5RaP_bBLNL7rnH7wtbBTll5FT0e64DlPPpzbQtbrn52r10cO772kgsBTx5O63KCD_wchiuSwgYaQG6fXZFiT-LjAzAsdGobS5-fzqXv1Ous3O6bV2P5dnzYa827zlY5cKyFlmKuyAfPyEnY66thT5TqH77pB3inKnwhgIHM-FAK3_XBgFl9s5jYKvs6Jj9XTWwP32Nyz64OnvvwAAAP__qzefwxUCAAA&localPriority=0&locationId=641780&presentationType=serp&query=ASUS+PRIME+X470-PRO&sort=default&page=2
+
+ASUS ROG Strix B550-E Gaming | page=1 | первый запрос 2026-10-13T03:30:34.046750+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=6&context=H4sIAAAAAAAA_3SRQXejLBiF_4vbb4PY5It21dBK9Vg6mkrAXcCMkkHTCSQkmTP_fQ5pPLOaFS_n8N57n8smgckvk4QgCeT-cNhKq_Zj8GiSh_kiCbLRymxIdy3WJ6GdetdOyYiODaTXNnWqSJ1qWO8ETo-cVZ8CzmS2-5SZRT0oDuXJ4idQsNKunktj8dLPJkb_FcjfkQOF60ARVV2MICii0qDn8mQRmOYjQRF7rd0bfnGAR1Vn0QPgdee1DcFo0gP89nbm8_lMEp97Dqlt1jPAUDZnKO_5EMOG3jNjet2s2yMd6EXCv2wcxhc50C9eFfYC08vEKbA-biLi-cQ2dEoO9Nyuv3p49z2NadiwfHb3W9Yh_cjS5WpVh2mWdoBcn2yd5t8YygxDuRGQ9DefH_rF75BdeSbXzn1fnWU2Vnr7Wk1dCsD_L02LHOCLf7DjSdc2rNoLeN8dKy0wdSLKAUN5zBhQ_nPDJLjcznkSLD70T10dFFm8rbEmInj8_ScAAP__i7xQ-RUCAAA&localPriority=0&locationId=641780&presentationType=serp&query=ASUS+ROG+Strix+B550-E+Gaming&sort=default&page=1
+
+ASUS ROG Strix B550-E Gaming | page=2 | первый запрос 2026-10-13T03:39:09.537137+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=6&context=H4sIAAAAAAAA_3SRQXejLBiF_4vbb4PY5It21dBK9Vg6mkrAXcCMkkHTCSQkmTP_fQ5pPLOaFS_n8N57n8smgckvk4QgCeT-cNhKq_Zj8GiSh_kiCbLRymxIdy3WJ6GdetdOyYiODaTXNnWqSJ1qWO8ETo-cVZ8CzmS2-5SZRT0oDuXJ4idQsNKunktj8dLPJkb_FcjfkQOF60ARVV2MICii0qDn8mQRmOYjQRF7rd0bfnGAR1Vn0QPgdee1DcFo0gP89nbm8_lMEp97Dqlt1jPAUDZnKO_5EMOG3jNjet2s2yMd6EXCv2wcxhc50C9eFfYC08vEKbA-biLi-cQ2dEoO9Nyuv3p49z2NadiwfHb3W9Yh_cjS5WpVh2mWdoBcn2yd5t8YygxDuRGQ9DefH_rF75BdeSbXzn1fnWU2Vnr7Wk1dCsD_L02LHOCLf7DjSdc2rNoLeN8dKy0wdSLKAUN5zBhQ_nPDJLjcznkSLD70T10dFFm8rbEmInj8_ScAAP__i7xQ-RUCAAA&localPriority=0&locationId=641780&presentationType=serp&query=ASUS+ROG+Strix+B550-E+Gaming&sort=default&page=2
+
+PCIe-райзер | page=1 | первый запрос 2026-10-13T03:31:04.034144+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&localPriority=0&locationId=641780&presentationType=serp&query=PCIe-%D1%80%D0%B0%D0%B9%D0%B7%D0%B5%D1%80&sort=default&page=1
+
+PCIe-райзер | page=2 | первый запрос 2026-10-13T03:40:30.571891+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&localPriority=0&locationId=641780&presentationType=serp&query=PCIe-%D1%80%D0%B0%D0%B9%D0%B7%D0%B5%D1%80&sort=default&page=2
+
+Sapphire Pulse RX 570 4GB | page=1 | первый запрос 2026-10-13T03:29:57.772718+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&context=H4sIAAAAAAAA_wEmANn_YToxOntzOjE6InkiO3M6MTY6InpTYkYwRG9GbnVXbjFIVEIiO33E4ZV5JgAAAA&localPriority=0&locationId=641780&presentationType=serp&query=Sapphire+Pulse+RX+570+4GB&sort=default&page=1
+
+Sapphire Pulse RX 570 4GB | page=2 | первый запрос 2026-10-13T03:38:08.271986+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&context=H4sIAAAAAAAA_wEmANn_YToxOntzOjE6InkiO3M6MTY6InpTYkYwRG9GbnVXbjFIVEIiO33E4ZV5JgAAAA&localPriority=0&locationId=641780&presentationType=serp&query=Sapphire+Pulse+RX+570+4GB&sort=default&page=2
+
+X470 GAMING PLUS MAX | page=1 | первый запрос 2026-10-13T03:29:26.318603+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&localPriority=0&locationId=641780&presentationType=serp&query=X470+GAMING+PLUS+MAX&sort=default&page=1
+
+ddr4 16gb | page=1 | первый запрос 2026-10-13T03:20:27.551783+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&context=H4sIAAAAAAAA_wEmANn_YToxOntzOjE6InkiO3M6MTY6InRjb0ZFeHc3Q29WQTQycnAiO3085SvPJgAAAA&localPriority=0&locationId=641780&params%5B483%5D=6581&params%5B631%5D=6636&presentationType=serp&query=ddr4+16gb&sort=default&page=1
+
+ddr4 16gb | page=2 | первый запрос 2026-10-13T03:34:14.195521+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&context=H4sIAAAAAAAA_wEmANn_YToxOntzOjE6InkiO3M6MTY6InRjb0ZFeHc3Q29WQTQycnAiO3085SvPJgAAAA&localPriority=0&locationId=641780&params%5B483%5D=6581&params%5B631%5D=6636&presentationType=serp&query=ddr4+16gb&sort=default&page=2
+
+rtx 2080ti | page=1 | первый запрос 2026-10-13T03:33:04.488594+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&context=H4sIAAAAAAAA_wEmANn_YToxOntzOjE6InkiO3M6MTY6InhrRzhUaklwQ1phdndMTUUiO32V-ggnJgAAAA&localPriority=0&locationId=641780&params%5B483%5D=6581&params%5B631%5D=6611&presentationType=serp&query=rtx+2080ti&sort=default&page=1
+
+rtx 2080ti | page=2 | первый запрос 2026-10-13T03:42:13.183407+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&context=H4sIAAAAAAAA_wEmANn_YToxOntzOjE6InkiO3M6MTY6InhrRzhUaklwQ1phdndMTUUiO32V-ggnJgAAAA&localPriority=0&locationId=641780&params%5B483%5D=6581&params%5B631%5D=6611&presentationType=serp&query=rtx+2080ti&sort=default&page=2
+
+rtx 5070 | page=1 | первый запрос 2026-10-13T03:33:36.500784+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&context=H4sIAAAAAAAA_wEmANn_YToxOntzOjE6InkiO3M6MTY6Im8zZjNLQTA1cEdHMU1LU2kiO32WV4ucJgAAAA&localPriority=0&locationId=641780&params%5B483%5D=6581&params%5B631%5D=6611&presentationType=serp&query=rtx+5070&sort=default&page=1
+
+rtx 5070 | page=2 | первый запрос 2026-10-13T03:42:48.921159+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&context=H4sIAAAAAAAA_wEmANn_YToxOntzOjE6InkiO3M6MTY6Im8zZjNLQTA1cEdHMU1LU2kiO32WV4ucJgAAAA&localPriority=0&locationId=641780&params%5B483%5D=6581&params%5B631%5D=6611&presentationType=serp&query=rtx+5070&sort=default&page=2
+
+ryzen 5 5500x3d | page=1 | первый запрос 2026-10-13T03:31:59.456810+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&context=H4sIAAAAAAAA_wEmANn_YToxOntzOjE6InkiO3M6MTY6Imo1eFZReDdrZVZQWWs2YVIiO30iEbwMJgAAAA&localPriority=0&locationId=641780&params%5B160625%5D=18665221&params%5B483%5D=6581&params%5B631%5D=6641&presentationType=serp&query=ryzen+5+5500x3d&sort=default&page=1
+
+ryzen 5 5500x3d | page=2 | первый запрос 2026-10-13T03:41:26.311621+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&context=H4sIAAAAAAAA_wEmANn_YToxOntzOjE6InkiO3M6MTY6Imo1eFZReDdrZVZQWWs2YVIiO30iEbwMJgAAAA&localPriority=0&locationId=641780&params%5B160625%5D=18665221&params%5B483%5D=6581&params%5B631%5D=6641&presentationType=serp&query=ryzen+5+5500x3d&sort=default&page=2
+
+ryzen 7 5700x3d | page=1 | первый запрос 2026-10-13T03:26:53.577604+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&context=H4sIAAAAAAAA_wEmANn_YToxOntzOjE6InkiO3M6MTY6InZ1WUZOQXlRUFBzT3RXWnEiO30cgUTFJgAAAA&localPriority=0&locationId=641780&params%5B160625%5D=18665221&params%5B483%5D=6581&params%5B631%5D=6641&presentationType=serp&query=ryzen+7+5700x3d&sort=default&page=1
+
+ryzen 7 5700x3d | page=2 | первый запрос 2026-10-13T03:34:54.537444+00:00
+GET https://www.avito.ru/web/1/js/items?categoryId=101&context=H4sIAAAAAAAA_wEmANn_YToxOntzOjE6InkiO3M6MTY6InZ1WUZOQXlRUFBzT3RXWnEiO30cgUTFJgAAAA&localPriority=0&locationId=641780&params%5B160625%5D=18665221&params%5B483%5D=6581&params%5B631%5D=6641&presentationType=serp&query=ryzen+7+5700x3d&sort=default&page=2
+

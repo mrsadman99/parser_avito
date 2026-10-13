@@ -32,6 +32,7 @@ monitoring-check:
 	$(MONITORING_COMPOSE) config --quiet
 	$(MONITORING_COMPOSE) run --rm --no-deps loki -config.file=/etc/loki/config.yml -verify-config=true
 	$(MONITORING_COMPOSE) run --rm --no-deps alloy validate /etc/alloy/config.alloy
+	$(MONITORING_COMPOSE) run --rm --no-deps log-gateway nginx -t
 
 # 🏗️ Сборка Docker-образа
 build:

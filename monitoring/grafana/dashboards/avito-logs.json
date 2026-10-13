@@ -7,7 +7,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": false,
   "refresh": "10s",
   "time": {
@@ -243,6 +243,43 @@
       }
     },
     {
+      "id": 7,
+      "type": "logs",
+      "title": "JSON ответов страниц выдачи",
+      "description": "Каждый успешный JSON до фильтрации. Разверните строку → CatalogJSON → Открыть полный JSON. Счётчики items/ads позволяют отличить пустую выдачу от отсеивания фильтрами.",
+      "datasource": {
+        "type": "loki",
+        "uid": "avito-loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "avito-loki"
+          },
+          "expr": "{service_name=\"parser_avito\", instance=~\"$instance\", subsystem=\"scanning\"} |= \"catalog_snapshot=\" |= ${search:doublequote} | json | line_format \"{{.message}}\"",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
       "id": 3,
       "type": "logs",
       "title": "Общий журнал",
@@ -252,7 +289,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 7,
+        "y": 16,
         "w": 24,
         "h": 10
       },
@@ -288,7 +325,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 17,
+        "y": 26,
         "w": 24,
         "h": 10
       },
@@ -324,7 +361,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 27,
+        "y": 36,
         "w": 24,
         "h": 10
       },
@@ -360,7 +397,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 37,
+        "y": 46,
         "w": 24,
         "h": 10
       },

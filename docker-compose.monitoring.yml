@@ -34,6 +34,16 @@ services:
       - loki
     logging: *container-logging
 
+  log-gateway:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/gateway/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${AVITO_LOG_DIR:-./logs}:/var/log/avito:ro,z
+    depends_on:
+      - loki
+    logging: *container-logging
+
   grafana:
     image: grafana/grafana:13.2.2-ubuntu
     restart: unless-stopped
@@ -52,7 +62,7 @@ services:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
-      - loki
+      - log-gateway
     logging: *container-logging
 
 volumes:

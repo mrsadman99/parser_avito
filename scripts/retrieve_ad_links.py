@@ -33,6 +33,7 @@ from engine.http.client import HttpClient
 from engine.http.camoufox_client import CamoufoxClient
 from engine.proxies.proxy_factory import build_proxy
 from engine.url_converter import AvitoUrlConverter
+from engine.catalog_snapshots import save_catalog_response
 from mobile_proxy.own_mobile_proxy import ensure_own_mobile_proxy, proxy_address, start_proxy
 
 
@@ -94,7 +95,9 @@ def collect_links(client, source_url, pages, config):
         url = urlunsplit((parts.scheme, parts.netloc, parts.path,
                          urlencode(query + [("page", str(page))]), ""))
         response = client.request("GET", url)
-        items = extract_item_links(response.json())
+        payload = response.json()
+        save_catalog_response(payload, url=url, page=page, status_code=response.status_code)
+        items = extract_item_links(payload)
         print(f"Страница {page}: {len(items)} объявлений")
         if not items:
             break
