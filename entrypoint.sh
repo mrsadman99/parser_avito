@@ -5,4 +5,4 @@ wait_seconds=1
 echo "Waiting for $wait_seconds seconds..."
 sleep $wait_seconds
 cd /app
-python engine/app.py
+python -m engine.app

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Стрим лога tinyproxy с телефона на хост в logs/tinyproxy.log.
 
-Запускается фоново (utils.own_mobile_proxy._start_log_follower) при старте своего
+Запускается фоново (mobile_proxy.own_mobile_proxy._start_log_follower) при старте своего
 мобильного прокси и останавливается вместе с ним. Переподключается при обрыве SSH/ADB.
 
 Запуск вручную:

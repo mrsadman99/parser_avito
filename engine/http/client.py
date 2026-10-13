@@ -72,8 +72,11 @@ class HttpClient(BaseHttpClient):
 
         return session
 
-    def _send(self, method, url, **kwargs):
+    def _send(self, method, url, *, cancellation, **kwargs):
         return self._client.request(method, url, timeout=kwargs.pop('timeout', self.timeout), **kwargs)
+
+    def _get_ip_response(self, service, proxies):
+        return requests.get(service, proxies=proxies, timeout=10, impersonate="chrome")
 
     def _reset(self) -> None:
         self._reset_client()

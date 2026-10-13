@@ -43,7 +43,7 @@ def add_seller_rating(ads: list[Item]) -> list[Item]:
             ad.seller_rating = float(rating.score)
         if rating.summary:
             reviews = digits(rating.summary)
-            if reviews:
+            if reviews is not None:
                 ad.seller_reviews = reviews
     return ads
 

@@ -117,16 +117,22 @@ class CamoufoxClient(BaseHttpClient):
             self._launch()
         return self._page
 
-    def _send(self, method, url, **kwargs):
+    def _send(self, method, url, *, cancellation, **kwargs):
         page = self._ensure_page()
+        cancellation.checkpoint()
         response = page.goto(
             url,
             wait_until="domcontentloaded",
             timeout=self.timeout * 1000,
         )
+        cancellation.checkpoint()
         status = response.status if response else 0
         body = response.text() if response else ""
         return CamoufoxResponse(text=body, status_code=status, url=str(url))
+
+    def _check_response(self, response) -> None:
+        # Браузер возвращает HTTP-ошибки вызывающему коду без сетевого ретрая.
+        pass
 
     def _reset(self):
         """Перезапускает браузер после смены IP (сбрасывает cookies/сессию)."""
@@ -134,6 +140,7 @@ class CamoufoxClient(BaseHttpClient):
         self._launch()
 
     def _on_error(self, error) -> None:
+        # В отличие от curl, сетевая ошибка не обнуляет накопленные блокировки.
         try:
             self._reset()
         except Exception:

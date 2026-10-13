@@ -627,7 +627,7 @@ class AvitoParse:
         )
 
 
-if __name__ == "__main__":
+def main():
     multiprocessing.freeze_support()
     configure_app_logging()
     try:
@@ -661,4 +661,8 @@ if __name__ == "__main__":
         raise SystemExit(1)
     finally:
         if parser is not None:
-            engine.close()
+            parser.close()
+
+
+if __name__ == "__main__":
+    main()

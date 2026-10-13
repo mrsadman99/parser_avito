@@ -10,13 +10,14 @@ from loguru import logger
 from load_config import load_avito_config
 from persistence import store
 
-_config = None
+_CONFIG_UNSET = object()
+_config = _CONFIG_UNSET
 
 
 def get_config():
     """Загружает config.toml один раз и кэширует (None, если не удалось)."""
     global _config
-    if _config is None:
+    if _config is _CONFIG_UNSET:
         try:
             _config = load_avito_config("config.toml")
         except Exception:
@@ -39,6 +40,22 @@ def _cors_extra() -> list:
     return list(config.server.cors_origins or []) if config else []
 
 
+class ConfiguredCORSMiddleware(CORSMiddleware):
+    """Читает конфиг при сборке ASGI middleware, а не при импорте приложения."""
+
+    def __init__(self, app):
+        origins = set(_cors_extra())
+        port = _web_port()
+        origins.update({f"http://localhost:{port}", f"http://127.0.0.1:{port}"})
+        super().__init__(
+            app,
+            allow_origins=list(origins),
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+
 @asynccontextmanager
 async def lifespan(app):
     store.init_db()
@@ -52,15 +69,7 @@ async def lifespan(app):
 def create_app() -> FastAPI:
     app = FastAPI(title="Avito Parser API", lifespan=lifespan)
 
-    cors_origins = set(_cors_extra())
-    cors_origins.update({f"http://localhost:{_web_port()}", f"http://127.0.0.1:{_web_port()}"})
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=list(cors_origins),
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    app.add_middleware(ConfiguredCORSMiddleware)
 
     from server.routers import ads, auth, links
     app.include_router(auth.router)

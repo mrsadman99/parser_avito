@@ -66,9 +66,6 @@ jobs:
             --noconsole ^
             --icon=assets/logo.ico ^
             --collect-all flet ^
-            --collect-all pyexcel ^
-            --collect-all pyexcel_xlsx ^
-            --collect-all pyexcel_io ^
             --collect-all openpyxl ^
             --hidden-import httpx ^
             --add-data "config.toml;." ^

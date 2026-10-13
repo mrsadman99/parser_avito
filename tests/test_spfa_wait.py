@@ -13,7 +13,7 @@ from engine.http.base import BaseHttpClient, UnblockTimeoutError
 
 
 class ScriptedClient(BaseHttpClient):
-    def _send(self, method, url, **kwargs):
+    def _send(self, method, url, *, cancellation, **kwargs):
         return self.send(method, url, **kwargs)
 
     def _reset(self):

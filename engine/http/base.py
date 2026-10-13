@@ -46,7 +46,7 @@ class BaseHttpClient(ABC):
     # -- хуки, реализуемые подклассами ------------------------------------- #
 
     @abstractmethod
-    def _send(self, method: str, url: str, **kwargs):
+    def _send(self, method: str, url: str, *, cancellation: Cancellation, **kwargs):
         """Один «сырой» запрос; возвращает объект со status_code/raise_for_status."""
 
     @abstractmethod
@@ -62,7 +62,14 @@ class BaseHttpClient(ABC):
         return True
 
     def _on_error(self, error) -> None:
-        """Действие при неуспешной попытке (например, перезапуск браузера)."""
+        """По умолчанию сетевая ошибка сбрасывает последовательность блокировок."""
+        self._block_attempts = 0
+
+    def _check_response(self, response) -> None:
+        response.raise_for_status()
+
+    def _get_ip_response(self, service, proxies):
+        return requests.get(service, proxies=proxies, timeout=10)
 
     # -- общая логика ------------------------------------------------------- #
 
@@ -74,7 +81,7 @@ class BaseHttpClient(ABC):
         for service in ("https://api.ipify.org?format=json", "https://ipinfo.io/ip"):
             cancellation.checkpoint()
             try:
-                resp = requests.get(service, proxies=proxies, timeout=10)
+                resp = self._get_ip_response(service, proxies)
                 cancellation.checkpoint()
                 if resp.status_code != 200:
                     continue
@@ -159,7 +166,7 @@ class BaseHttpClient(ABC):
                 request_kwargs = dict(kwargs)
                 if probe:
                     request_kwargs['timeout'] = min(self.timeout, remaining)
-                response = self._send(method, url, **request_kwargs)
+                response = self._send(method, url, cancellation=cancellation, **request_kwargs)
                 self.last_response = response
                 cancellation.checkpoint()
                 if self.cookies:
@@ -185,7 +192,7 @@ class BaseHttpClient(ABC):
                 self._block_attempts = 0
                 if status in accepted_statuses:
                     return response
-                response.raise_for_status()
+                self._check_response(response)
                 return response
 
             except (ParseCancelled, ProxyRotationError):
@@ -195,7 +202,6 @@ class BaseHttpClient(ABC):
                     raise
                 cancellation.checkpoint()
                 last_exc = err
-                self._block_attempts = 0
                 self.error_count += 1
                 label = 'SPFA control' if probe else f'attempt {attempt}'
                 logger.warning(f"Request error ({label}): {err}")

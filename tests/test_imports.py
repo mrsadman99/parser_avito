@@ -1,8 +1,8 @@
 """Smoke-тест импорта: каждый модуль проекта должен импортироваться без ошибок.
 
 Защищает от ImportError/NameError при переезде модулей между пакетами и
-от поломки re-export'ов. Точки входа (scripts/, GUI) и модули с побочными
-эффектами на импорте намеренно исключаются — они проверяются отдельно.
+от поломки re-export'ов. Точки входа scripts/ и GUI проверяются отдельно;
+server.main включён, поскольку его импорт не читает конфиг и не создаёт БД.
 """
 import importlib
 import sys
@@ -24,10 +24,6 @@ ROOT_MODULES = (
     "lang",
 )
 
-# Модули с побочными эффектами на импорте (БД/конфиг) — включаются после
-# рефакторинга, убирающего эти эффекты.
-SKIP = {"server.main"}
-
 
 def _module_names():
     names = list(ROOT_MODULES)
@@ -40,8 +36,6 @@ def _module_names():
             if relative.name == "__init__.py":
                 continue
             name = ".".join(relative.with_suffix("").parts)
-            if name in SKIP:
-                continue
             names.append(name)
     return names
 

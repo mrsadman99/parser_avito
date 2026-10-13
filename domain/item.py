@@ -168,6 +168,11 @@ class Item(BaseModel):
                 candidate = value.get(key)
                 if isinstance(candidate, int):
                     return candidate
+                if isinstance(candidate, str):
+                    try:
+                        return int(candidate)
+                    except ValueError:
+                        continue
             return None
         if isinstance(value, str) and value.isdigit():
             return int(value)

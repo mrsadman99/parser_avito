@@ -2,7 +2,7 @@
 """Запуск парсера с ссылками из веб-БД (для tmux/detached-режима).
 
 Используется run.py, чтобы запустить парсер отдельным процессом. В отличие от
-`python engine/app.py`, передаёт links_provider из persistence.store, поэтому
+`python -m engine.app`, передаёт links_provider из persistence.store, поэтому
 подхватывает ссылки, добавленные через веб-интерфейс (а также config.toml).
 
 Запуск:

@@ -16,7 +16,7 @@ def log_category(record):
     name = record["name"] or ""
     if name.startswith("notifications."):
         return "notifications"
-    if name == "engine.app" or record["file"].name == "app.py":
+    if name == "engine.app" or (name == "__main__" and record["file"].name == "app.py"):
         if record["function"] in {"_notification_cycle", "_deliver_pending_notifications"}:
             return "notifications"
         return "scanning"
