@@ -1,4 +1,4 @@
-from pydantic import BaseModel, HttpUrl, RootModel
+from pydantic import BaseModel, HttpUrl, RootModel, field_validator
 from typing import List, Optional, Dict, Any
 
 
@@ -104,9 +104,9 @@ class Rating(BaseModel):
 
 
 class Item(BaseModel):
-    id: int | dict | None = None
-    categoryId: int | dict | None = None
-    locationId: int | dict | None = None
+    id: int | None = None
+    categoryId: int | None = None
+    locationId: int | None = None
     isVerifiedItem: bool | None = None
     urlPath: str | None = None
     title: str | None = None
@@ -119,8 +119,8 @@ class Item(BaseModel):
     priceDetailed: PriceDetailed | None = None
     normalizedPrice: Optional[str] | None = None
     priceWithoutDiscount: Optional[str] | None = None
-    discountPercent: Optional[int] | Optional[str] | None = None
-    lastMinuteOffer: Optional[str] | Optional[dict] | None = None
+    discountPercent: int | str | None = None
+    lastMinuteOffer: str | dict | None = None
     images: List[Image] | None = None
     imagesCount: int | None = None
     isFavorite: bool | None = None
@@ -156,6 +156,22 @@ class Item(BaseModel):
     isPromotion: bool = False
     phone: str | None = None
     scanned_at: Optional[str] = None
+
+    @field_validator("id", "categoryId", "locationId", mode="before")
+    @classmethod
+    def _normalize_id_field(cls, value):
+        """Каталог иногда отдаёт id-поля как dict (или строку) — приводим к int."""
+        if value is None or isinstance(value, int):
+            return value
+        if isinstance(value, dict):
+            for key in ("value", "id"):
+                candidate = value.get(key)
+                if isinstance(candidate, int):
+                    return candidate
+            return None
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+        return value
 
     def main_image_url(self) -> str | None:
         """URL самого большого главного фото (первое изображение объявления)."""
