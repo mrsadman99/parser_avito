@@ -1,10 +1,10 @@
 # graphana-skynet-dashboards — универсальная конфигурация
 
-Локальный Git-репозиторий: `/Users/mrsadman/Projects/parser_avito/graphana-skynet-dashboards`, ветка `main`. Публикация и запуск на сервере не выполнялись.
+Локальный Git-репозиторий: `/Users/mrsadman/Projects/parser_avito/graphana-skynet-dashboards`, ветка `main`. Запуск на сервере не выполнялся.
 
 ## Назначение
 
-Grafana, InfluxDB и Telegraf в Docker. Дашборды проектов добавляются в projects/ без изменений .env или Compose. Дополнительные datasource подключаются отдельно. Инструкция по существующим JSON: docs/IMPORTING.md.
+Grafana, InfluxDB и Telegraf в Docker. JSON добавляются в projects/. Инструкция по импорту: docs/IMPORTING.md. Telegraf запускается напрямую без setcap/setpriv entrypoint образа.
 
 ## Структура
 
@@ -42,7 +42,7 @@ graphana-skynet-dashboards/
 
 ## Полный листинг файлов
 
-Ниже точное содержимое отслеживаемых файлов. Локальный .env с секретами намеренно исключён; шаблон .env.example включён.
+Точное содержимое отслеживаемых файлов. Локальный .env с секретами исключён; .env.example включён.
 
 ### /Users/mrsadman/Projects/parser_avito/graphana-skynet-dashboards/.env.example
 
@@ -132,7 +132,7 @@ check:
 	docker compose config --quiet
 
 check-runtime: check
-	docker compose run --rm --no-deps telegraf telegraf --config /etc/telegraf/telegraf.conf --test
+	docker compose run --rm --no-deps telegraf --config /etc/telegraf/telegraf.conf --test
 
 test:
 	python3 -m unittest discover -s tests -v
@@ -248,9 +248,25 @@ JSON из репозитория. В **Connections → Data sources** созда
 Глобальная тема по умолчанию — Dark; пользовательская Preferences имеет приоритет.
 
 Telegraf использует host network/PID и read-only mount корня Linux-хоста.
+Он запускается напрямую через `/usr/bin/telegraf` от UID 0 с `cap_drop: [ALL]`
+и `no-new-privileges`. Стандартный entrypoint образа вызывает `setcap` и
+`setpriv`, поэтому несовместим с этими ограничениями. При переопределённом
+entrypoint передавайте в `docker compose run` только аргументы Telegraf,
+например `docker compose run --rm --no-deps telegraf --config /etc/telegraf/telegraf.conf --test`.
 Он не требует Docker socket и `privileged: true`. В Docker Desktop измеряется
 Linux VM, а не физический хост macOS/Windows. На системах с rootless Docker,
 SELinux или user namespace remapping проверьте доступ к host-метрикам отдельно.
+
+Если контейнер сообщает `Failed to set additional capabilities` или
+`setpriv: setresuid failed`, проверьте наличие `entrypoint: ["/usr/bin/telegraf"]`
+в сервисе Telegraf и пересоздайте его после обновления Compose:
+
+```bash
+docker compose up -d --force-recreate telegraf
+docker compose logs --tail=100 telegraf
+```
+
+Один `restart` не меняет entrypoint уже созданного контейнера.
 
 ## Добавление существующего дашборда
 
@@ -488,6 +504,9 @@ services:
     image: telegraf:1.38.4
     restart: unless-stopped
     user: "0:0"
+    # Skip the image wrapper, which calls setcap/setpriv and needs dropped capabilities.
+    entrypoint: ["/usr/bin/telegraf"]
+    command: ["--config", "/etc/telegraf/telegraf.conf"]
     # Native Linux: collect the host's network interfaces and processes.
     network_mode: host
     pid: host
@@ -1223,6 +1242,8 @@ make check
 - 11 автоматических тестов прошли.
 - Универсальная проверка JSON и Telegraf TOML прошла.
 - Compose нормализуется: Grafana, InfluxDB и Telegraf, два volumes.
+- Telegraf запускается через `/usr/bin/telegraf --config /etc/telegraf/telegraf.conf`,
+  минуя операции setcap/setpriv wrapper; runtime-проверка передаёт бинарнику только аргументы.
 - Запуск импортёра как CLI проверен на временном JSON, включая подпапку
   и отказ от перезаписи без `--overwrite`.
 - Текущий `.env` содержит только параметры платформы, исключён из Git,

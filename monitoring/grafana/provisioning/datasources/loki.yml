@@ -14,3 +14,7 @@ datasources:
           matcherRegex: 'catalog_snapshot=([0-9]{4}-[0-9]{2}-[0-9]{2}/[0-9]{12}_[a-f0-9]{32}\.json)'
           url: '${GF_SERVER_ROOT_URL}api/datasources/proxy/uid/avito-loki/snapshots/$${__value.raw}'
           urlDisplayLabel: 'Открыть полный JSON'
+        - name: HTTPDetails
+          matcherRegex: 'http_file=([0-9]{4}-[0-9]{2}-[0-9]{2}/[0-9]{12}_[a-f0-9]{32}\.json)'
+          url: '${GF_SERVER_ROOT_URL}api/datasources/proxy/uid/avito-loki/http/$${__value.raw}'
+          urlDisplayLabel: 'Открыть запрос и ответ'

@@ -11,6 +11,9 @@ from engine.cancellation import Cancellation, cancellable_lock
 SPFA_AVITO_URL_ENDPOINT = "https://spfa.pro/api/avito-url/"
 
 
+from utils.http_logging import http_call
+
+
 class AvitoUrlConverter:
     """Convert public Avito URLs to mobile API URLs and cache the result."""
 
@@ -46,7 +49,7 @@ class AvitoUrlConverter:
 
             self._wait_for_rate_limit(cancellation)
             cancellation.checkpoint()
-            response = requests.post(
+            response = http_call('spfa', 'POST', requests.post,
                 SPFA_AVITO_URL_ENDPOINT,
                 json={"url": url},
                 headers={"Content-Type": "application/json"},

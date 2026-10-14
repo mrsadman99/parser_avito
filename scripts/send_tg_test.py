@@ -16,6 +16,9 @@ import requests
 from load_config import load_avito_config
 
 
+from utils.http_logging import http_call
+
+
 def get_proxy(proxy: str):
     if proxy:
         return {"http": f"http://{proxy}", "https": f"http://{proxy}"}
@@ -47,7 +50,7 @@ def main():
 
     for chat_id in config.messengers.tg_chat_id:
         try:
-            resp = requests.post(
+            resp = http_call('notify', 'POST', requests.post,
                 url,
                 json={"chat_id": chat_id, "text": text},
                 proxies=proxies,

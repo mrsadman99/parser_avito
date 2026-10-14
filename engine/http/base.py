@@ -15,6 +15,9 @@ from engine.cookies.base import UnblockState
 from engine.proxies.proxy import ProxyRotationError
 
 
+from utils.http_logging import http_call
+
+
 class UnblockTimeoutError(RuntimeError):
     """SPFA не восстановил доступ за отведённое время."""
 
@@ -69,7 +72,7 @@ class BaseHttpClient(ABC):
         response.raise_for_status()
 
     def _get_ip_response(self, service, proxies):
-        return requests.get(service, proxies=proxies, timeout=10)
+        return http_call('other', 'GET', requests.get, service, proxies=proxies, timeout=10)
 
     # -- общая логика ------------------------------------------------------- #
 

@@ -18,6 +18,8 @@ def _rotation_worker(proxy, sender):
     # сохранять единые журналы и не вращать один файл из нескольких процессов.
     import hide_private_data  # noqa: F401 — маскировка до передачи сообщения
     logger.remove()
+    from utils.http_logging import forward_http_logs
+    forward_http_logs(lambda event: sender.send(("http", event)))
     logger.add(
         lambda message: sender.send(("log", message.record["level"].name, str(message).rstrip())),
         format="{name}:{function}:{line} - {message}", level="DEBUG", diagnose=False,
@@ -69,6 +71,11 @@ def _rotation_attempt(proxy, cancellation):
                     return False, "процесс смены IP завершился без результата"
                 if result[0] == "log":
                     logger.bind(log_category="blocking").log(result[1], result[2])
+                    continue
+                if result[0] == "http":
+                    from utils.http_logging import record_http, http_operation
+                    result[1]['operation'] = http_operation.get()
+                    record_http(result[1])
                     continue
                 return result
             if not process.is_alive():

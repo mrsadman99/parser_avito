@@ -32,6 +32,9 @@ HEADERS = {
 }
 
 
+from utils.http_logging import http_call
+
+
 class FetchOwnCookiesProvider(CookiesProvider):
     """Свои cookies: получаются GET-запросом к Avito через мобильный прокси."""
 
@@ -107,7 +110,7 @@ class FetchOwnCookiesProvider(CookiesProvider):
                 session.proxies = {"http": proxy_url, "https": proxy_url}
 
         logger.info(f"🍪 Получаю свои cookies: GET {TARGET_URL} (impersonate={IMPERSONATE})")
-        response = session.get(TARGET_URL, headers=HEADERS, timeout=30)
+        response = http_call('avito', 'GET', session.get, TARGET_URL, headers=HEADERS, timeout=30, session=session)
 
         cookies = dict(session.cookies)
         if not cookies:

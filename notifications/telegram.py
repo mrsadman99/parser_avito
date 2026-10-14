@@ -9,6 +9,9 @@ from domain.item import Item
 from proxy_helpers import build_proxies_dict
 
 
+from utils.http_logging import http_call
+
+
 class TelegramNotifier(Notifier):
     def __init__(self, bot_token: str, chat_id: str, proxy: str = None, *, photo_proxy: str = None, photo_guard=None):
         self.bot_token = bot_token
@@ -26,7 +29,7 @@ class TelegramNotifier(Notifier):
 
     def notify_message(self, message: str):
         def _send():
-            return requests.post(
+            return http_call('notify', 'POST', requests.post,
                 f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
                 json={
                     "chat_id": self.chat_id,
@@ -47,7 +50,7 @@ class TelegramNotifier(Notifier):
 
     def _send_photo_bytes(self, image_bytes: bytes, caption: str) -> None:
         def _send():
-            return requests.post(
+            return http_call('notify', 'POST', requests.post,
                 f"https://api.telegram.org/bot{self.bot_token}/sendPhoto",
                 data={
                     "chat_id": self.chat_id,

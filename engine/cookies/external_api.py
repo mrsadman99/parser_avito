@@ -16,6 +16,9 @@ from engine.cancellation import cancellable_lock
 API_URL = "https://spfa.pro/api"
 
 
+from utils.http_logging import http_call
+
+
 def _recovery_locked(method):
     @wraps(method)
     def wrapped(self, *args, **kwargs):
@@ -132,7 +135,7 @@ class ExternalApiCookiesProvider(CookiesProvider):
         logger.warning('Истёк срок ожидания SPFA; запрос завершается, доступ к Avito остаётся приостановленным')
 
     def _request_unblock(self, timeout):
-        return requests.post(
+        return http_call('spfa', 'POST', requests.post,
             f"{API_URL}/unblock/",
             json={"id": self.last_id, "api_key": self.api_key, "proxy": self.proxy},
             headers=self.headers, timeout=timeout, proxies=self.request_proxies,
@@ -291,7 +294,7 @@ class ExternalApiCookiesProvider(CookiesProvider):
         logger.info("🛒 Запрашиваем покупку новых cookies у сервиса")
 
         try:
-            res = requests.post(
+            res = http_call('spfa', 'POST', requests.post,
                 f"{API_URL}/cookies/mobile/",
                 json={
                     "api_key": self.api_key,

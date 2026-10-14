@@ -5,6 +5,7 @@ import json
 import traceback
 
 from loguru import logger
+from utils.http_logging import configure_http_logging, http_operation
 
 # Устанавливает общую маскировку секретов также для новых файловых обработчиков.
 import hide_private_data  # noqa: F401
@@ -18,8 +19,12 @@ def log_operation(operation):
     def decorate(function):
         @wraps(function)
         def wrapped(*args, **kwargs):
-            with logger.contextualize(operation=operation):
-                return function(*args, **kwargs)
+            token = http_operation.set(operation)
+            try:
+                with logger.contextualize(operation=operation):
+                    return function(*args, **kwargs)
+            finally:
+                http_operation.reset(token)
         return wrapped
     return decorate
 
@@ -83,6 +88,7 @@ def json_log_format(record):
 def configure_app_logging(directory="logs"):
     """Вызывается один раз при загрузке парсера; возвращает ID добавленных sinks."""
     directory = Path(directory)
+    configure_http_logging(directory)
     options = dict(rotation="5 MB", retention="5 days", level="DEBUG", encoding="utf-8")
     handlers = [logger.add(directory / "app.log", **options)]
     for category in ("scanning", "notifications", "blocking"):

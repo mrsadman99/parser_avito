@@ -8,6 +8,9 @@ from notifications.transport import send_with_retries
 from domain.item import Item
 
 
+from utils.http_logging import http_call
+
+
 class ParsePhone:
     API_URL = "https://spfa.pro/api/phone/"
     DEFAULT_TIMEOUT = 30
@@ -20,7 +23,7 @@ class ParsePhone:
 
     def get_phone_batch(self, ads_ids: list):
         def _send():
-            return requests.post(
+            return http_call('spfa', 'POST', requests.post,
                 self.API_URL,
                 json={
                     "api_key": self.config.cookies_api_key,

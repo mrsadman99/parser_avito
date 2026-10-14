@@ -8,6 +8,9 @@ import urllib3
 from loguru import logger
 
 
+from utils.http_logging import http_call
+
+
 def download_photo(photo_url: str, proxies: dict | None = None, *, guard=None) -> bytes:
     with guard() if guard else nullcontext():
         return _download_photo(photo_url, proxies)
@@ -32,7 +35,7 @@ def _download_photo(photo_url: str, proxies: dict | None = None) -> bytes:
             # Переменные HTTP(S)_PROXY не должны подменять его на proxy_notifier.
             session.trust_env = False
             session.proxies.update(proxies or {})
-            with session.get(photo_url, timeout=15) as img:
+            with http_call('avito', 'GET', session.get, photo_url, timeout=15, session=session) as img:
                 img.raise_for_status()
                 content = img.content
                 logger.debug('[notify photo] HTTP {}; content-type={}; bytes={}',

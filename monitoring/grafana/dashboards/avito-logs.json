@@ -7,7 +7,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "editable": false,
   "refresh": "10s",
   "time": {
@@ -43,7 +43,7 @@
         "name": "subsystem",
         "label": "Алгоритм",
         "type": "custom",
-        "query": "scanning,notifications,blocking,general",
+        "query": "scanning,notifications,blocking,general,http",
         "multi": true,
         "includeAll": true,
         "allValue": ".*",
@@ -74,6 +74,11 @@
           {
             "text": "general",
             "value": "general",
+            "selected": false
+          },
+          {
+            "text": "http",
+            "value": "http",
             "selected": false
           }
         ]
@@ -107,6 +112,45 @@
           },
           {
             "text": "Прочее",
+            "value": "other",
+            "selected": false
+          }
+        ]
+      },
+      {
+        "name": "http_tag",
+        "label": "HTTP-сервис",
+        "type": "custom",
+        "query": "avito,spfa,notify,other",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "avito",
+            "value": "avito",
+            "selected": false
+          },
+          {
+            "text": "spfa",
+            "value": "spfa",
+            "selected": false
+          },
+          {
+            "text": "notify",
+            "value": "notify",
+            "selected": false
+          },
+          {
+            "text": "other",
             "value": "other",
             "selected": false
           }
@@ -314,6 +358,43 @@
       }
     },
     {
+      "id": 9,
+      "type": "logs",
+      "title": "HTTP: запросы и ответы",
+      "datasource": {
+        "type": "loki",
+        "uid": "avito-loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "avito-loki"
+          },
+          "expr": "{service_name=\"parser_avito\", instance=~\"$instance\", operation=~\"$operation\", subsystem=\"http\", http_tag=~\"$http_tag\", level=~\"$level\"} |= ${search:doublequote} | json | line_format \"{{.message}}\"",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      },
+      "description": "Все попытки HTTP: avito, spfa, notify и other. Фильтр HTTP-сервис. request_id связывает отправку и результат; HTTPDetails открывает полный обмен с маскировкой секретов."
+    },
+    {
       "id": 3,
       "type": "logs",
       "title": "Общий журнал",
@@ -323,7 +404,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 16,
+        "y": 26,
         "w": 24,
         "h": 10
       },
@@ -359,7 +440,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 26,
+        "y": 36,
         "w": 24,
         "h": 10
       },
@@ -396,7 +477,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 36,
+        "y": 46,
         "w": 24,
         "h": 10
       },
@@ -433,7 +514,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 46,
+        "y": 56,
         "w": 24,
         "h": 10
       },
@@ -469,7 +550,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 56,
+        "y": 66,
         "w": 24,
         "h": 10
       },

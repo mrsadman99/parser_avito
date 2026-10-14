@@ -44,6 +44,11 @@ PROXIES = {
 
 # ----------------------- УТИЛИТЫ -------------------------
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from utils.http_logging import http_call
+
+
 def iter_cookies(cookies: Any) -> Iterator[Tuple[str, str]]:
     """
     Универсальный итератор по кукам.
@@ -83,7 +88,7 @@ def build_session() -> requests.Session:
 def fetch_cookies(session: requests.Session, url: str) -> bool:
     """Выполняет запрос и наполняет сессию куками от сервера."""
     try:
-        r = session.get(url, headers=HEADERS, timeout=30)
+        r = http_call('avito', 'GET', session.get, url, headers=HEADERS, timeout=30, session=session)
         print(f"[+] GET {url} -> {r.status_code}")
 
         cookies_list = list(iter_cookies(session.cookies))
@@ -146,13 +151,13 @@ def load_cookies(path: Path) -> requests.Session:
 def check_proxy_ip(session: requests.Session) -> None:
     """Проверяет, какой IP видит сервер, и какие куки отправляются."""
     try:
-        ip_resp = session.get("https://httpbin.org/ip", timeout=20)
+        ip_resp = http_call('other', 'GET', session.get, "https://httpbin.org/ip", timeout=20, session=session)
         print(f"[i] IP, видимый серверу: {ip_resp.json().get('origin')}")
     except Exception as e:
         print(f"[!] Не удалось проверить IP: {e}", file=sys.stderr)
 
     try:
-        ck_resp = session.get("https://httpbin.org/cookies", timeout=20)
+        ck_resp = http_call('other', 'GET', session.get, "https://httpbin.org/cookies", timeout=20, session=session)
         print(
             f"[i] Куки, отправленные серверу: {ck_resp.json().get('cookies')}")
     except Exception as e:
@@ -176,7 +181,7 @@ def cmd_use() -> None:
     """Загрузить куки и выполнить пробный запрос."""
     s = load_cookies(COOKIES_FILE)
     check_proxy_ip(s)
-    r = s.get(TARGET_URL, headers=HEADERS, timeout=30)
+    r = http_call('avito', 'GET', s.get, TARGET_URL, headers=HEADERS, timeout=30, session=s)
     print(
         f"[+] Тестовый запрос -> {r.status_code}, длина ответа: {len(r.text)} байт")
 

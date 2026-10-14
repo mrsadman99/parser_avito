@@ -8,6 +8,9 @@ from engine.http.base import BaseHttpClient
 from engine.proxies.proxy import Proxy
 
 
+from utils.http_logging import http_call
+
+
 class HttpClient(BaseHttpClient):
     def __init__(
         self,
@@ -77,10 +80,13 @@ class HttpClient(BaseHttpClient):
         # Отмена могла произойти после ответа SPFA, но до сброса сессии в _rotate.
         if getattr(self.cookies, 'revision', None) != self._cookies_revision:
             self._reset()
-        return self._client.request(method, url, timeout=kwargs.pop('timeout', self.timeout), **kwargs)
+        return http_call(
+            'avito', method, self._client.request, url, session=self._client, with_method=True,
+            timeout=kwargs.pop('timeout', self.timeout), **kwargs,
+        )
 
     def _get_ip_response(self, service, proxies):
-        return requests.get(service, proxies=proxies, timeout=10, impersonate="chrome")
+        return http_call('other', 'GET', requests.get, service, proxies=proxies, timeout=10, impersonate="chrome")
 
     def _reset(self) -> None:
         self._reset_client()

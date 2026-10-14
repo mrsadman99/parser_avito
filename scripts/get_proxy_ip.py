@@ -19,6 +19,9 @@ from load_config import load_avito_config
 from proxy_helpers import build_proxies_dict, BROWSER_USER_AGENT
 
 
+from utils.http_logging import http_call
+
+
 def proxies_for(proxy_string: str):
     """Собирает словарь proxies из строки (поддерживает http/https/socks5)."""
     return build_proxies_dict(proxy_string)
@@ -30,7 +33,7 @@ def change_ip(change_urls: list, notifier_proxy: str = None):
     last_err = None
     for url in change_urls:
         try:
-            resp = requests.get(
+            resp = http_call('other', 'GET', requests.get,
                 url,
                 params={"format": "json"},
                 proxies=proxies,
@@ -53,7 +56,7 @@ def current_ip(proxy_string: str):
     proxies = proxies_for(proxy_string)
     for service in ("https://api.ipify.org?format=json", "https://ipinfo.io/ip"):
         try:
-            resp = requests.get(service, proxies=proxies, timeout=15)
+            resp = http_call('other', 'GET', requests.get, service, proxies=proxies, timeout=15)
             if resp.status_code != 200:
                 continue
             if "ipify" in service:

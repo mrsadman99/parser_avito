@@ -6,6 +6,7 @@ Camoufox — антидетект-браузер (форк Firefox) с нати�
 """
 from loguru import logger
 from engine.http.base import BaseHttpClient
+from utils.http_logging import BrowserHttpLogger
 
 
 class CamoufoxResponse:
@@ -60,6 +61,7 @@ class CamoufoxClient(BaseHttpClient):
         self._browser = None
         self._context = None
         self._page = None
+        self._http_logger = None
 
     def _launch(self):
         try:
@@ -101,6 +103,7 @@ class CamoufoxClient(BaseHttpClient):
         else:
             raise RuntimeError("Не удалось создать страницу Camoufox")
 
+        self._http_logger = BrowserHttpLogger(self._page, kwargs.get('proxy'))
         logger.info(f"Camoufox запущен (desktop fingerprint, os={self.os})")
         return self._page
 
@@ -110,6 +113,9 @@ class CamoufoxClient(BaseHttpClient):
                 self._manager.__exit__(None, None, None)
         except Exception:
             pass
+        if self._http_logger is not None:
+            self._http_logger.close()
+            self._http_logger = None
         self._manager = self._browser = self._context = self._page = None
 
     def _ensure_page(self):

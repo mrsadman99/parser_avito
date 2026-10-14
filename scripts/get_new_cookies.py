@@ -41,6 +41,9 @@ HEADERS = {
 }
 
 
+from utils.http_logging import http_call
+
+
 def get_new_cookies(
     api_key: str,
     proxy: str = "",
@@ -50,7 +53,7 @@ def get_new_cookies(
     proxies: dict | None = None,
 ):
     """Покупает cookies у SPFA. Возвращает (response, payload_or_None)."""
-    response = requests.post(
+    response = http_call('spfa', 'POST', requests.post,
         endpoint,
         json={
             "api_key": api_key,

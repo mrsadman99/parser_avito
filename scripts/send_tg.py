@@ -29,6 +29,9 @@ from load_config import load_avito_config
 from proxy_helpers import build_proxies_dict
 
 
+from utils.http_logging import http_call
+
+
 def _is_url(value: str) -> bool:
     return value.startswith(("http://", "https://"))
 
@@ -42,7 +45,7 @@ def _body(chat_id: str, text: str, markdown: bool, **extra) -> dict:
 
 def _send_text(token, chat_id, text, proxies, markdown):
     def _send():
-        return requests.post(
+        return http_call('notify', 'POST', requests.post,
             f"https://api.telegram.org/bot{token}/sendMessage",
             json=_body(chat_id, text, markdown),
             proxies=proxies,
@@ -54,7 +57,7 @@ def _send_text(token, chat_id, text, proxies, markdown):
 
 def _send_photo_url(token, chat_id, caption, photo_url, proxies, markdown):
     def _send():
-        return requests.post(
+        return http_call('notify', 'POST', requests.post,
             f"https://api.telegram.org/bot{token}/sendPhoto",
             json={
                 "chat_id": chat_id,
@@ -76,7 +79,7 @@ def _send_photo_bytes(token, chat_id, caption, image_bytes, filename, proxies, m
         data["parse_mode"] = "MarkdownV2"
 
     def _send():
-        return requests.post(
+        return http_call('notify', 'POST', requests.post,
             f"https://api.telegram.org/bot{token}/sendPhoto",
             data=data,
             files={"photo": (filename, image_bytes, "image/jpeg")},
@@ -102,7 +105,7 @@ def send_to_chat(token, chat_id, text, photo, proxies, markdown):
             resp = getattr(err, "response", None)
             if resp is not None and resp.status_code == 400:
                 print("  (URL фото отклонён Telegram, пробую скачать и отправить байтами)")
-                img = requests.get(photo, proxies=proxies, timeout=15)
+                img = http_call('avito', 'GET', requests.get, photo, proxies=proxies, timeout=15)
                 img.raise_for_status()
                 _send_photo_bytes(
                     token, chat_id, caption, img.content, "photo.jpg", proxies, markdown

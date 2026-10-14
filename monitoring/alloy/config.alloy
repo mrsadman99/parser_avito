@@ -14,6 +14,17 @@ loki.source.file "avito" {
   forward_to   = [loki.process.avito.receiver]
 }
 
+loki.source.file "http" {
+  targets = [{
+    __path__     = "/var/log/avito/http.jsonl",
+    service_name = "parser_avito",
+    job          = "avito",
+    instance     = sys.env("AVITO_INSTANCE"),
+  }]
+  tail_from_end = false
+  forward_to   = [loki.process.avito.receiver]
+}
+
 loki.process "avito" {
   stage.json {
     expressions = {
@@ -21,6 +32,8 @@ loki.process "avito" {
       level     = "level",
       subsystem = "subsystem",
       operation = "operation",
+      http_tag  = "http_tag",
+      phase     = "phase",
     }
   }
   stage.timestamp {
@@ -34,6 +47,8 @@ loki.process "avito" {
       level     = "",
       subsystem = "",
       operation = "",
+      http_tag  = "",
+      phase     = "",
     }
   }
   stage.label_drop {

@@ -6,6 +6,9 @@ from loguru import logger
 from proxy_helpers import build_proxies_dict, BROWSER_USER_AGENT
 
 
+from utils.http_logging import http_call
+
+
 class ProxyRotationError(RuntimeError):
     """Смена IP не выполнена; восстановление сессии продолжать нельзя."""
 
@@ -88,7 +91,7 @@ class ExternalMobileProxy(Proxy):
         total = len(self.change_ip_urls)
         for url_index, change_ip_url in enumerate(self.change_ip_urls, start=1):
             try:
-                res = requests.get(
+                res = http_call('other', 'GET', requests.get,
                     change_ip_url, params=params,
                     timeout=min(self.CHANGE_IP_TIMEOUT, self.rotation_timeout),
                     proxies=proxies, headers={"User-Agent": BROWSER_USER_AGENT},

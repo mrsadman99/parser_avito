@@ -10,6 +10,9 @@ from domain.item import Item
 from proxy_helpers import build_proxies_dict
 
 
+from utils.http_logging import http_call
+
+
 class VKNotifier(Notifier):
     def __init__(self, vk_token: str, user_id: str | int, proxy: str = None, *, photo_proxy: str = None, photo_guard=None):
         self.vk_token = vk_token
@@ -26,7 +29,7 @@ class VKNotifier(Notifier):
             headers = {
                 "Authorization": f"Bearer {self.vk_token}"
             }
-            return requests.post(
+            return http_call('notify', 'POST', requests.post,
                 "https://api.vk.com/method/messages.send",
                 headers=headers,
                 data={
@@ -63,7 +66,7 @@ class VKNotifier(Notifier):
             headers = {
                 "Authorization": f"Bearer {self.vk_token}"
             }
-            return requests.post(
+            return http_call('notify', 'POST', requests.post,
                 "https://api.vk.com/method/messages.send",
                 data=payload,
                 headers=headers,
@@ -94,7 +97,7 @@ class VKNotifier(Notifier):
         headers = {"Authorization": f"Bearer {self.vk_token}"}
 
         try:
-            upload_server_response = requests.post(
+            upload_server_response = http_call('notify', 'POST', requests.post,
                 "https://api.vk.com/method/photos.getMessagesUploadServer",
                 headers=headers,
                 params={"v": "5.199"},
@@ -109,7 +112,7 @@ class VKNotifier(Notifier):
             upload_url = upload_server_response["response"]["upload_url"]
 
             photo_data = download_photo(photo_url, self.photo_proxy, guard=self.photo_guard)
-            upload_response = requests.post(
+            upload_response = http_call('notify', 'POST', requests.post,
                 upload_url,
                 files={"photo": ("photo.jpg", photo_data, "image/jpeg")},
                 timeout=30,
@@ -120,7 +123,7 @@ class VKNotifier(Notifier):
                 logger.warning("VK: фото не загружено")
                 return None
 
-            save_response = requests.post(
+            save_response = http_call('notify', 'POST', requests.post,
                 "https://api.vk.com/method/photos.saveMessagesPhoto",
                 headers=headers,
                 params={
