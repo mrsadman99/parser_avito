@@ -3,6 +3,7 @@
 config.toml
 config_backup.toml
 config.local.toml
+postman/*.local.postman_collection.json
 .env
 .env.*
 !.env.example

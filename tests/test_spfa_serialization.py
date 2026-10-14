@@ -29,8 +29,8 @@ def response(status):
     return result
 
 
-def spfa_success(provider):
-    return Mock(status_code=200, ok=True, json=lambda: {
+def spfa_success(provider, status=200):
+    return Mock(status_code=status, ok=True, json=lambda: {
         'success': True, 'results': {
             'id': 123, 'cookies': {'fresh': 'cookie'}, 'user_agent': provider.user_agent,
             'fingerprint': provider.fingerprint, 'mobile': True,
@@ -38,8 +38,8 @@ def spfa_success(provider):
     })
 
 
-@pytest.mark.parametrize('purchase', [False, True])
-def test_queue_and_photos_wait_for_spfa(tmp_path, purchase):
+@pytest.mark.parametrize('purchase,status', [(False, 200), (False, 202), (True, 200)])
+def test_queue_and_photos_wait_for_spfa(tmp_path, purchase, status):
     provider = provider_at(tmp_path)
     if purchase:
         provider.status_history = [429] * 19
@@ -58,7 +58,7 @@ def test_queue_and_photos_wait_for_spfa(tmp_path, purchase):
         assert args[0].endswith('/cookies/mobile/' if purchase else '/unblock/')
         started.set()
         assert release.wait(3)
-        return spfa_success(provider)
+        return spfa_success(provider, status)
 
     def worker(action):
         try:
@@ -109,7 +109,8 @@ def test_queue_and_photos_wait_for_spfa(tmp_path, purchase):
         assert provider.last_cookies == {'fresh': 'cookie'}
 
 
-def test_cancellation_after_spfa_success_cannot_reuse_old_session(tmp_path):
+@pytest.mark.parametrize('status', [200, 202])
+def test_cancellation_after_spfa_success_cannot_reuse_old_session(tmp_path, status):
     provider = provider_at(tmp_path)
     old, new = Mock(cookies={}), Mock(cookies={})
     old.request.return_value = response(429)
@@ -118,7 +119,7 @@ def test_cancellation_after_spfa_success_cannot_reuse_old_session(tmp_path):
 
     def spfa(*args, **kwargs):
         cancelled.set()
-        return spfa_success(provider)
+        return spfa_success(provider, status)
 
     with patch('engine.http.client.requests.Session', side_effect=[old, new]), \
          patch.object(HttpClient, 'get_current_ip', return_value=None), \

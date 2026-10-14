@@ -54,4 +54,34 @@ class SpfaUnblockTests(unittest.TestCase):
             provider.handle_block()
         post.assert_called_once()
         self.assertEqual(provider.unblock_started_at, 1000)
-        log.warning.assert_not_called()
+        self.assertIn('ответ не подтверждает', log.warning.call_args.args[0])
+
+    def test_202_with_complete_cookies_finishes_unblock(self):
+        provider = self.provider()
+        provider.last_id = '203679'
+        cookies = {f'test_cookie_{i}': f'value_{i}' for i in range(29)}
+        response = Mock(status_code=202, json=lambda: {
+            'success': True, 'results': {'id': 203679, 'cookies': cookies},
+        })
+        self.assertTrue(provider._accept_unblock(response))
+        self.assertEqual(provider.last_cookies, cookies)
+        self.assertIsNone(provider.get_unblock_state())
+        self.assertEqual(provider.status_history, [])
+        self.assertEqual(provider.revision, 1)
+        provider._save_to_disk.assert_called_once()
+
+    def test_202_without_confirmed_cookies_does_not_finish_unblock(self):
+        for payload in (
+            {'success': True},
+            {'success': False, 'results': {'id': 'test-cookie-id', 'cookies': {'new': 'value'}}},
+            {'success': True, 'results': {'id': 'other', 'cookies': {'new': 'value'}}},
+            {'success': True, 'results': {'id': 'test-cookie-id', 'cookies': {}}},
+            {'success': True, 'results': {'id': 'test-cookie-id', 'cookies': {'new': None}}},
+        ):
+            with self.subTest(payload=payload):
+                provider = self.provider()
+                self.assertFalse(provider._accept_unblock(Mock(status_code=202, json=lambda: payload)))
+                self.assertEqual(provider.last_cookies, {'old': 'cookie'})
+                self.assertIsNotNone(provider.get_unblock_state())
+                self.assertEqual(provider.revision, 0)
+                provider._save_to_disk.assert_not_called()

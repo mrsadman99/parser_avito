@@ -139,7 +139,8 @@ class ExternalApiCookiesProvider(CookiesProvider):
         )
 
     def _accept_unblock(self, response) -> bool:
-        if response.status_code != 200:
+        # SPFA возвращает готовые cookies и с HTTP 202; проверяем содержимое ответа.
+        if response.status_code not in (200, 202):
             return False
         try:
             payload = response.json()

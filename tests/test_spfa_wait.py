@@ -66,8 +66,8 @@ class SpfaWaitTests(unittest.TestCase):
     def request(self):
         return self.client.request('GET', 'https://m.avito.ru/test', cancellation=self.cancellation)
 
-    def success(self):
-        return Mock(status_code=200, json=lambda: {
+    def success(self, status=200):
+        return Mock(status_code=status, json=lambda: {
             'success': True, 'results': {'id': 'test-id', 'cookies': {'fresh': 'new'}}})
 
     def test_wait_polls_spfa_only_then_uses_new_cookies(self):
@@ -88,6 +88,26 @@ class SpfaWaitTests(unittest.TestCase):
         self.post.assert_called_once()
         self.assertEqual(self.provider.last_cookies, {'fresh': 'new'})
         self.assertEqual(self.client.resets, 1)
+
+    def test_202_with_cookies_resumes_avito_without_polling(self):
+        self.statuses = [429, 200]
+        self.post.return_value = self.success(202)
+        self.assertEqual(self.request().status_code, 200)
+        self.assertEqual(self.sent, [1000, 1005])
+        self.post.assert_called_once()
+        self.assertEqual(self.provider.last_cookies, {'fresh': 'new'})
+        self.assertIsNone(self.provider.get_unblock_state())
+        self.provider._get_new_cookies.assert_not_called()
+
+    def test_pending_unblock_finishes_on_202_with_cookies(self):
+        self.provider.unblock_started_at = self.now
+        self.statuses = [200]
+        self.post.return_value = self.success(202)
+        self.assertEqual(self.request().status_code, 200)
+        self.assertEqual(self.sent, [1030])
+        self.assertEqual(self.client.resets, 1)
+        self.client.proxy.rotate_with_retries.assert_not_called()
+        self.post.assert_called_once()
 
     def test_timeout_keeps_avito_paused_across_requests(self):
         self.provider.UNBLOCK_TIMEOUT = 90

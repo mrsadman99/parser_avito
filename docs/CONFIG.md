@@ -371,13 +371,14 @@ spfa_unblock_check_interval = 30
 ```
 
 Запрос `/unblock/` синхронно ожидает ответ сервиса с таймаутом
-`spfa_unblock_timeout`. HTTP 200 проверяется по JSON: нужны `success: true`,
+`spfa_unblock_timeout`. HTTP 200 и 202 проверяются по JSON: нужны `success: true`,
 совпадающий `results.id` и непустой `results.cookies`. Старые cookies заменяются
 полученным набором, затем пересоздаётся HTTP-сессия. Покупка `/cookies/mobile/`
 также синхронна и использует этот таймаут; запросы Avito продолжаются после получения
 и проверки cookies, user-agent и fingerprint.
 
-Если SPFA отвечает 202/409 или не возвращает подтверждённый набор, IP сохраняется,
+HTTP 202 с этими полями завершает ожидание так же, как HTTP 200.
+Если SPFA отвечает 409 или не возвращает подтверждённый набор в 200/202, IP сохраняется,
 Avito остаётся на паузе. Через `spfa_unblock_check_interval` секунд повторяется
 запрос **к SPFA `/unblock/`**, а не к Avito. Отдельного endpoint статуса в используемой
 [документации SPFA](https://spfa.pro/api/docs/) нет; повторный POST вызывает тот же
