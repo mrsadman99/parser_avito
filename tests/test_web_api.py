@@ -54,3 +54,48 @@ def test_subscription_normalizes_valid_input(web):
     assert response.status_code == 201, response.text
     assert response.json()['white_list'] == ['cpu', 'AMD']
     assert response.json()['url'] == 'https://www.avito.ru/novosibirsk?q=cpu'
+
+
+@pytest.mark.parametrize('username,password', [('owner', 'password'), ('admin', 'test-admin')])
+def test_sessions_persist_and_logout_revokes_only_current_session(web, username, password):
+    client, _, _ = web
+    def login():
+        response = client.post('/api/login', json={'username': username, 'password': password})
+        assert response.status_code == 200
+        return response.json()['token']
+    first, second = login(), login()
+    store.init_db()  # startup migration must neither remove nor extend valid sessions
+    with TestClient(server_app.create_app()) as another_worker:
+        for token in (first, second):
+            response = another_worker.get('/api/me', headers={'Authorization': f'Bearer {token}'})
+            assert response.status_code == 200
+            assert response.json()['is_admin'] == (username == 'admin')
+    headers = {'Authorization': f'Bearer {first}'}
+    assert client.post('/api/logout', headers=headers).status_code == 200
+    assert client.get('/api/links', headers=headers).status_code == 401
+    assert client.get('/api/me', headers={'Authorization': f'Bearer {second}'}).status_code == 200
+    with store._connect() as conn:
+        rows = conn.execute('SELECT token_hash FROM sessions').fetchall()
+        assert all(row['token_hash'] not in (first, second) for row in rows)
+        conn.execute('UPDATE sessions SET expires_at = 0')
+    assert client.get('/api/me', headers={'Authorization': f'Bearer {second}'}).status_code == 401
+
+
+def test_admin_password_change_invalidates_session(web, monkeypatch):
+    client, _, _ = web
+    token = client.post('/api/login', json={'username': 'admin', 'password': 'test-admin'}).json()['token']
+    monkeypatch.setattr(auth, '_admin_password', lambda: 'changed')
+    assert client.get('/api/me', headers={'Authorization': f'Bearer {token}'}).status_code == 401
+
+
+def test_legacy_user_token_migrated_once(web):
+    _, _, user_id = web
+    with store._connect() as conn:
+        conn.execute('UPDATE users SET token = ? WHERE id = ?', ('legacy-token', user_id))
+    store.init_db()
+    assert store.session_actor('legacy-token')['id'] == user_id
+    with store._connect() as conn:
+        assert conn.execute('SELECT token FROM users WHERE id = ?', (user_id,)).fetchone()[0] is None
+    store.revoke_session('legacy-token')
+    store.init_db()
+    assert store.session_actor('legacy-token') is None

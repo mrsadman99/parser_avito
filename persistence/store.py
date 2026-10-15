@@ -8,6 +8,7 @@ import hashlib
 import json
 import secrets
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from persistence.ads import now_iso
 from utils.db_diagnostics import web_database_diagnostics
 
 DB_PATH = Path("storage/web.db")
+SESSION_TTL = 30 * 24 * 60 * 60
 
 
 @contextmanager
@@ -92,6 +94,27 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id INTEGER,
+                admin_verifier TEXT,
+                expires_at REAL NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                CHECK ((user_id IS NOT NULL AND admin_verifier IS NULL)
+                    OR (user_id IS NULL AND admin_verifier IS NOT NULL))
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at)")
+        # Migrate old user sessions once, without storing raw bearer tokens.
+        for row in conn.execute("SELECT id, token FROM users WHERE token IS NOT NULL"):
+            if row["token"]:
+                conn.execute(
+                    "INSERT OR IGNORE INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
+                    (_token_hash(row["token"]), row["id"], time.time() + SESSION_TTL),
+                )
+        conn.execute("UPDATE users SET token = NULL WHERE token IS NOT NULL")
+        conn.execute("DELETE FROM sessions WHERE expires_at <= ?", (time.time(),))
         existing = {row[1] for row in conn.execute("PRAGMA table_info(links)")}
         for col, ddl in _LINK_EXTRA_COLUMNS.items():
             if col not in existing:
@@ -139,17 +162,66 @@ def login(username: str, password: str) -> str | None:
         _, digest = _hash_password(password, row["salt"])
         if not secrets.compare_digest(digest, row["password_hash"]):
             return None
-        token = secrets.token_hex(32)
-        conn.execute("UPDATE users SET token = ? WHERE id = ?", (token, row["id"]))
-        conn.commit()
-        return token
+        return _insert_session(conn, user_id=row["id"])
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _admin_verifier(token: str, password: str) -> str:
+    return hashlib.sha256((token + "\0" + password).encode()).hexdigest()
+
+
+def _insert_session(conn, *, user_id=None, admin_password=None) -> str:
+    token = secrets.token_hex(32)
+    conn.execute("DELETE FROM sessions WHERE expires_at <= ?", (time.time(),))
+    conn.execute(
+        "INSERT INTO sessions (token_hash, user_id, admin_verifier, expires_at) VALUES (?, ?, ?, ?)",
+        (_token_hash(token), user_id,
+         _admin_verifier(token, admin_password) if admin_password else None,
+         time.time() + SESSION_TTL),
+    )
+    return token
+
+
+def create_admin_session(password: str) -> str:
+    with _connect("create_admin_session") as conn:
+        return _insert_session(conn, admin_password=password)
+
+
+def session_actor(token: str, admin_password: str = "") -> dict | None:
+    if not token:
+        return None
+    with _connect("session_actor") as conn:
+        row = conn.execute(
+            """SELECT s.*, u.username FROM sessions s LEFT JOIN users u ON u.id = s.user_id
+               WHERE token_hash = ? AND expires_at > ?""",
+            (_token_hash(token), time.time()),
+        ).fetchone()
+    if row is None:
+        return None
+    if row["admin_verifier"] is not None:
+        if not admin_password or not secrets.compare_digest(
+                row["admin_verifier"], _admin_verifier(token, admin_password)):
+            return None
+        return {"id": None, "username": "admin", "is_admin": True}
+    if row["username"] is None:
+        return None
+    return {"id": row["user_id"], "username": row["username"], "is_admin": False}
+
+
+def revoke_session(token: str) -> None:
+    with _connect("revoke_session") as conn:
+        conn.execute("DELETE FROM sessions WHERE token_hash = ?", (_token_hash(token),))
 
 
 def get_user_by_token(token: str) -> dict | None:
-    if not token:
+    actor = session_actor(token)
+    if actor is None or actor["is_admin"]:
         return None
     with _connect() as conn:
-        row = conn.execute("SELECT * FROM users WHERE token = ?", (token,)).fetchone()
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (actor["id"],)).fetchone()
         return dict(row) if row else None
 
 
