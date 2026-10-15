@@ -1,6 +1,9 @@
 """CRUD ссылок-подписок (web-БД) + read-only ссылки из config.toml."""
+from datetime import date
+from urllib.parse import urlsplit
+
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from load_config import load_avito_config
 from persistence import store
@@ -10,16 +13,64 @@ router = APIRouter()
 
 
 class LinkRequest(BaseModel):
-    url: str = Field(min_length=1)
-    min_price: int | None = None
-    max_price: int | None = None
-    white_list: list[str] = []
-    black_list: list[str] = []
+    url: str = Field(min_length=1, max_length=4096)
+    min_price: int | None = Field(default=None, ge=0, le=9_000_000_000_000_000)
+    max_price: int | None = Field(default=None, ge=0, le=9_000_000_000_000_000)
+    white_list: list[str] = Field(default_factory=list, max_length=100)
+    black_list: list[str] = Field(default_factory=list, max_length=100)
     geo: str | None = None
     start_date: str | None = None
     ignore_reserv: bool | None = None
     ignore_promotion: bool | None = None
     username: str | None = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value):
+        value = value.strip()
+        try:
+            parsed = urlsplit(value)
+            host = (parsed.hostname or "").lower()
+            valid = (
+                parsed.scheme in {"http", "https"}
+                and (host == "avito.ru" or host.endswith(".avito.ru"))
+                and parsed.username is None and parsed.password is None
+                and parsed.port in {None, 80, 443}
+                and not any(c.isspace() or ord(c) < 32 for c in value)
+            )
+        except ValueError:
+            valid = False
+        if not valid:
+            raise ValueError("Укажите корректную ссылку http(s) на avito.ru")
+        return value
+
+    @field_validator("start_date")
+    @classmethod
+    def validate_date(cls, value):
+        if not value or not value.strip():
+            return None
+        value = value.strip()
+        try:
+            parsed = date.fromisoformat(value)
+            if parsed.isoformat() != value:
+                raise ValueError
+        except ValueError:
+            raise ValueError("Дата должна быть в формате ГГГГ-ММ-ДД")
+        return value
+
+    @field_validator("white_list", "black_list")
+    @classmethod
+    def normalize_words(cls, values):
+        words = list(dict.fromkeys(word.strip() for word in values if word.strip()))
+        if any(len(word) > 200 for word in words):
+            raise ValueError("Ключевое слово не должно превышать 200 символов")
+        return words
+
+    @model_validator(mode="after")
+    def validate_prices(self):
+        if self.min_price is not None and self.max_price is not None and self.min_price > self.max_price:
+            raise ValueError("Минимальная цена не должна превышать максимальную")
+        return self
 
 
 def _config_links() -> list[dict]:
