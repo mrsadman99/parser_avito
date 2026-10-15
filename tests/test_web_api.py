@@ -99,3 +99,58 @@ def test_legacy_user_token_migrated_once(web):
     store.revoke_session('legacy-token')
     store.init_db()
     assert store.session_actor('legacy-token') is None
+
+
+@pytest.fixture
+def results(web):
+    from domain.config import web_link_key
+    client, headers, user_id = web
+    url = 'https://www.avito.ru/search'
+    link = store.create_link(user_id, {'url': url})
+    other = store.register('other', 'password')
+    other_link = store.create_link(other['id'], {'url': url})
+    db = SQLiteDBHandler()
+    with db._connect('test_seed') as conn:
+        for subscription in (link, other_link):
+            for i in range(1, 8):
+                conn.execute('''INSERT INTO viewed
+                    (id, price, source_url, source_key, city, sort_time, has_delivery, description)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                    (i, i * 100, url, web_link_key(subscription['id'], url),
+                     'Новосибирск' if i % 2 else 'Москва', i * 1000, i % 2, 'large description'))
+    return client, headers, link, other_link
+
+
+def test_ads_page_filters_sort_and_owner_isolation(results):
+    client, headers, link, other = results
+    query = {'link_id': link['id'], 'page_size': 2, 'sort': 'price', 'direction': 'asc'}
+    first = client.get('/api/ads/page', params=query, headers=headers).json()
+    second = client.get('/api/ads/page', params={**query, 'page': 2}, headers=headers).json()
+    assert first['total'] == 7
+    assert [r['id'] for r in first['items']] == [1, 2]
+    assert [r['id'] for r in second['items']] == [3, 4]
+    assert 'description' not in first['items'][0]
+    filtered = client.get('/api/ads/page', headers=headers, params={
+        **query, 'city': 'НОВОСИБИРСК', 'delivery_only': True,
+        'published_from': 3000, 'published_to': 5000,
+    }).json()
+    assert filtered['total'] == 2
+    assert [r['id'] for r in filtered['items']] == [3, 5]
+    assert client.get('/api/ads/page', params={'link_id': other['id']}, headers=headers).status_code == 404
+    assert client.get('/api/ads/page', params=query).status_code == 401
+    by_url = client.get('/api/ads/page', params={'url': link['url']}, headers=headers).json()
+    assert by_url['total'] == 7
+    end = client.get('/api/ads/page', params={**query, 'page': 100}, headers=headers).json()
+    assert end['page'] == 4
+    assert [r['id'] for r in end['items']] == [7]
+    empty = client.get('/api/ads/page', params={**query, 'city': 'Missing'}, headers=headers).json()
+    assert empty['total'] == 0 and empty['page'] == 1 and empty['items'] == []
+
+
+@pytest.mark.parametrize('params', [
+    {'page': 0}, {'page_size': 201}, {'sort': 'price; DROP TABLE viewed'},
+    {'direction': 'bad'}, {'published_from': 10, 'published_to': 1},
+])
+def test_ads_page_rejects_invalid_query(web, params):
+    client, headers, _ = web
+    assert client.get('/api/ads/page', params=params, headers=headers).status_code == 422

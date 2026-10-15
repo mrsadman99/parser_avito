@@ -300,6 +300,51 @@ class SQLiteDBHandler:
             rows = conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
 
+    def list_ads_page(self, source_url: str, *, source_keys=None, page=1, page_size=50,
+                      sort="refreshed_at", direction="desc", delivery_only=False,
+                      city="", published_from=None, published_to=None) -> dict:
+        sort_fields = {"price", "scanned_at", "refreshed_at", "sort_time", "seller_reviews",
+                       "seller_rating", "has_delivery", "city"}
+        if sort not in sort_fields or direction not in {"asc", "desc"}:
+            raise ValueError("Unsupported sort")
+        if page < 1 or not 1 <= page_size <= 200:
+            raise ValueError("Invalid page")
+        clauses = ["source_url = ?"]
+        params = [source_url]
+        if source_keys is not None:
+            if not source_keys:
+                return {"items": [], "total": 0, "page": 1, "page_size": page_size}
+            clauses.append(f"source_key IN ({','.join('?' for _ in source_keys)})")
+            params.extend(source_keys)
+        if delivery_only:
+            clauses.append("has_delivery = 1")
+        if city.strip():
+            clauses.append("instr(casefold(COALESCE(city, '')), ?) > 0")
+            params.append(city.strip().casefold())
+        if published_from is not None:
+            clauses.append("sort_time >= ?")
+            params.append(published_from)
+        if published_to is not None:
+            clauses.append("sort_time <= ?")
+            params.append(published_to)
+        where = " AND ".join(clauses)
+        columns = ("id, price, source_key, title, photo_url, ad_url, has_delivery, city, "
+                   "scanned_at, refreshed_at, sort_time, seller_rating, seller_reviews, is_reserved")
+        with self._connect("list_ads_page") as conn:
+            conn.row_factory = sqlite3.Row
+            conn.create_function("casefold", 1, str.casefold, deterministic=True)
+            # Count and rows must see the same snapshot while the parser writes.
+            conn.execute("BEGIN")
+            total = conn.execute(f"SELECT COUNT(*) FROM viewed WHERE {where}", params).fetchone()[0]
+            page = min(page, max(1, (total + page_size - 1) // page_size))
+            order = f"{sort} {direction}, id ASC, price ASC, source_key ASC"
+            rows = conn.execute(
+                f"SELECT {columns} FROM viewed WHERE {where} ORDER BY {order} LIMIT ? OFFSET ?",
+                [*params, page_size, (page - 1) * page_size],
+            ).fetchall()
+        return {"items": [dict(row) for row in rows], "total": total,
+                "page": page, "page_size": page_size}
+
     def pending_notifications(self, recipients: list[str], limit: int = 100) -> list[dict]:
         if not recipients:
             return []
