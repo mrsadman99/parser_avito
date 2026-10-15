@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 
-export default function TagInput({ value, onChange, placeholder }) {
+export default function TagInput({ value, onChange, placeholder, disabled = false }) {
   const [text, setText] = useState('')
   const [editingIndex, setEditingIndex] = useState(null)
   const [editText, setEditText] = useState('')
@@ -43,6 +43,7 @@ export default function TagInput({ value, onChange, placeholder }) {
   }
 
   function startEdit(index) {
+    if (disabled) return
     skipBlurRef.current = false
     setEditingIndex(index)
     setEditText(tags[index])
@@ -116,6 +117,7 @@ export default function TagInput({ value, onChange, placeholder }) {
         ))}
         <input
           className="tag-field"
+          aria-label={placeholder}
           value={text}
           placeholder={tags.length === 0 ? placeholder : ''}
           onChange={handleChange}

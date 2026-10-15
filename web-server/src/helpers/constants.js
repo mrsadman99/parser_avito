@@ -20,14 +20,14 @@ export const RUSSIAN_CITIES = [
 export const EMPTY = { url: '', min_price: '', max_price: '', white_list: [], black_list: [], geo: '', start_date: '', ignore_reserv: true, ignore_promotion: false, username: '' }
 
 export const SORT_FIELDS = {
-  price: { label: 'Цена', key: (a) => a.price ?? 0 },
-  scanned_at: { label: 'Время парсинга', key: (a) => a.scanned_at ?? '' },
-  refreshed_at: { label: 'Обновлено', key: (a) => a.refreshed_at ?? '' },
-  sort_time: { label: 'Публикация', key: (a) => a.sort_time ?? 0 },
-  seller_reviews: { label: 'Оценок', key: (a) => a.seller_reviews ?? 0 },
-  seller_rating: { label: 'Рейтинг', key: (a) => a.seller_rating ?? 0 },
-  has_delivery: { label: 'Доставка', key: (a) => a.has_delivery ?? 0 },
-  city: { label: 'Расположение', key: (a) => a.city ?? '' },
+  price: { label: 'Цена' },
+  scanned_at: { label: 'Время парсинга' },
+  refreshed_at: { label: 'Обновлено' },
+  sort_time: { label: 'Публикация' },
+  seller_reviews: { label: 'Оценок' },
+  seller_rating: { label: 'Рейтинг' },
+  has_delivery: { label: 'Доставка' },
+  city: { label: 'Расположение' },
 }
 
 export const ADS_FILTERS_EMPTY = { deliveryOnly: false, city: '', dateFrom: '', dateTo: '' }

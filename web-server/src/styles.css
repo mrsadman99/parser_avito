@@ -451,3 +451,36 @@ header {
   font-size: 0.8rem;
   font-weight: 600;
 }
+
+fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+button:focus-visible,
+a:focus-visible,
+.table-scroll:focus-visible {
+  outline: 2px solid #6ea8fe;
+  outline-offset: 3px;
+}
+
+.ads-page { max-width: 1600px; }
+.table-scroll { width: 100%; overflow-x: auto; }
+.ads-table th button { padding: 0; border: 0; background: none; color: inherit; font: inherit; }
+.pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px 0; }
+.pagination label { display: inline-flex; align-items: center; gap: 8px; }
+.pagination select { width: auto; margin: 0; }
+
+@media (max-width: 640px) {
+  .app, .auth { padding: 16px; }
+  header, .header-actions, .row.checkboxes { flex-wrap: wrap; gap: 10px; }
+  .drp-panel { flex-direction: column; max-width: calc(100vw - 48px); }
+  .drp-actions { flex-direction: row; }
+}
