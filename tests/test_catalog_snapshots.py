@@ -1,3 +1,4 @@
+import gzip
 import json
 from pathlib import Path
 import re
@@ -36,7 +37,7 @@ def test_each_response_is_complete_and_has_a_working_grafana_reference(tmp_path)
             logger.remove(handler)
     assert paths[0] != paths[1]
     for path in paths:
-        assert json.loads(path.read_text()) == payload
+        assert json.loads(gzip.decompress(path.read_bytes())) == payload
     assert not list(tmp_path.rglob("*.tmp"))
     events = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
     datasource = Path("monitoring/grafana/provisioning/datasources/loki.yml").read_text()
@@ -51,7 +52,7 @@ def test_each_response_is_complete_and_has_a_working_grafana_reference(tmp_path)
         for line in (json.dumps(event), event["message"]):
             reference = re.search(matcher, line).group(1)
             assert reference == event["catalog_snapshot"]
-            assert tmp_path / "catalog_responses" / reference == path
+            assert tmp_path / "catalog_responses" / (reference + ".gz") == path
         assert len(json.dumps(event)) < 5000
 
 
@@ -62,9 +63,9 @@ def test_empty_and_unexpected_json_is_saved_before_validation(tmp_path, payload)
     with patch("engine.app.save_catalog_response", side_effect=lambda data, **kw:
                save_catalog_response(data, directory=tmp_path, **kw)):
         assert parser.fetch_api_data(URL, 1) is payload
-    paths = list(tmp_path.rglob("*.json"))
+    paths = list(tmp_path.rglob("*.json.gz"))
     assert len(paths) == 1
-    assert json.loads(paths[0].read_text()) == payload
+    assert json.loads(gzip.decompress(paths[0].read_bytes())) == payload
     assert parser.bad_request_count == 0
 
 
@@ -82,9 +83,9 @@ def test_disk_failure_does_not_discard_response_or_retry_request(tmp_path):
 
 
 def test_partial_write_is_not_published(tmp_path):
-    with patch("engine.catalog_snapshots.json.dump", side_effect=OSError("disk full")):
+    with patch("utils.log_storage.gzip.compress", side_effect=OSError("disk full")):
         assert save_catalog_response({}, url=URL, page=1, status_code=200, directory=tmp_path) is None
-    assert not list(tmp_path.rglob("*.json"))
+    assert not list(tmp_path.rglob("*.json.gz"))
     assert not list(tmp_path.rglob("*.tmp"))
 
 
@@ -128,7 +129,7 @@ def test_snapshot_preserves_both_arrays_and_reports_combined_unique_ads(tmp_path
     finally:
         for handler in handlers:
             logger.remove(handler)
-    assert json.loads(path.read_text()) == payload
+    assert json.loads(gzip.decompress(path.read_bytes())) == payload
     event = json.loads((tmp_path / "events.jsonl").read_text())
     assert event["catalog_main_items"] == 1
     assert event["catalog_extra_items"] == 3

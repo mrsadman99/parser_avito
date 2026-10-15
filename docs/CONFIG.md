@@ -256,7 +256,7 @@ TCP обслуживает сам ADB-сервер, дополнительног
 Ошибка его создания делает запуск неуспешным; ошибка при смене IP передаётся
 механизму повторных попыток. При остановке прокси монитор завершается, а его ADB-forward удаляется.
 Состояние процесса — `logs/tinyproxy_forward.json`, диагностика —
-`logs/tinyproxy_forward.log`, команды и ответы ADB — `logs/adb.log`.
+`logs/app.log` и `logs/events.jsonl` с тегом `blocking`, команды и ответы ADB — `logs/adb.log`.
 Для внешнего доступа используйте nginx stream: клиент → nginx →
 127.0.0.1:port1 → ADB → телефон:port2. Например, `adb_forward = [15556, 5556]`,
 `server = "127.0.0.1"` для локального парсера и внешний порт nginx 5556.
@@ -292,7 +292,7 @@ TLS к самому прокси пока не настраивается чер
 только при SSH в tinyproxy.conf выставляются LogFile и Syslog Off. Логи
 **стримятся на хост парсера** в `logs/tinyproxy.log` — фоновым процессом
 `scripts/follow_tinyproxy_log.py` (pid в `logs/tinyproxy_follow.pid`, диагностика в
-`logs/tinyproxy_follow.log`). Стрим стартует вместе с прокси и останавливается
+`logs/app.log` и `logs/events.jsonl`, тег `blocking`). Стрим стартует вместе с прокси и останавливается
 вместе с ним (`run_proxy.py --stop`, `scripts/stop.py`), переподключается при обрыве
 SSH/ADB. Путь лога на телефоне по умолчанию — `/data/data/com.termux/files/home/tinyproxy.log`,
 меняется флагом `python scripts/run_proxy.py --device-log <путь>`.

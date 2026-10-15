@@ -16,7 +16,7 @@ from mobile_proxy.background_process import alive as _alive, stop as _stop_proce
 ROOT = Path(__file__).resolve().parent.parent
 STATE = ROOT / "logs" / "tinyproxy_forward.json"
 LOCK = ROOT / "logs" / "tinyproxy_forward.lock"
-LOG = ROOT / "logs" / "tinyproxy_forward.log"
+LOG = ROOT / "logs" / "app.log"
 SCRIPT = ROOT / "scripts" / "watch_tinyproxy_forward.py"
 
 
@@ -113,12 +113,11 @@ def ensure_forward(serial, ports):
         elif state:
             _stop(state)
         LOG.parent.mkdir(parents=True, exist_ok=True)
-        with open(LOG, "a", encoding="utf-8") as output:
-            proc = subprocess.Popen(
-                [sys.executable, str(SCRIPT), "--serial", serial, "--ports", str(local_port), str(phone_port)],
-                cwd=ROOT, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
+        proc = subprocess.Popen(
+            [sys.executable, str(SCRIPT), "--serial", serial, "--ports", str(local_port), str(phone_port)],
+            cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             state = _read_state()

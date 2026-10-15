@@ -27,7 +27,6 @@ LOGS_DIR = ROOT / "logs"
 LOCAL_LOG = LOGS_DIR / "tinyproxy.log"          # лог tinyproxy на ХОСТЕ
 FOLLOW_PID = LOGS_DIR / "tinyproxy_follow.pid"
 FOLLOW_LOCK = LOGS_DIR / "tinyproxy_follow.lock"
-FOLLOW_LOG = LOGS_DIR / "tinyproxy_follow.log"  # диагностика самого стрима
 
 DEFAULT_CONFIG = "config.toml"
 TERMUX_PREFIX = "/data/data/com.termux/files/usr"
@@ -339,14 +338,10 @@ def _start_log_follower_locked(config_path, remote_log):
     LOGS_DIR.mkdir(exist_ok=True)
     cmd = [sys.executable, str(FOLLOWER_SCRIPT),
            "--config", str(config_path), "--remote-log", remote_log]
-    log = open(FOLLOW_LOG, "a", encoding="utf-8")
-    try:
-        proc = subprocess.Popen(
-            cmd, cwd=ROOT, stdin=subprocess.DEVNULL,
-            stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
-        )
-    finally:
-        log.close()
+    proc = subprocess.Popen(
+        cmd, cwd=ROOT, stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+    )
 
     FOLLOW_PID.write_text(str(proc.pid))
     logger.info(f"Лог tinyproxy стримится на хост: logs/{LOCAL_LOG.name} (pid {proc.pid})")

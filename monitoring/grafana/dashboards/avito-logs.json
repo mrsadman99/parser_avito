@@ -7,7 +7,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 4,
+  "version": 5,
   "editable": false,
   "refresh": "10s",
   "time": {
@@ -343,7 +343,8 @@
             "uid": "avito-loki"
           },
           "expr": "{service_name=\"parser_avito\", instance=~\"$instance\", subsystem=\"scanning\"} |= \"catalog_snapshot=\" |= ${search:doublequote} | json | line_format \"{{.message}}\"",
-          "queryType": "range"
+          "queryType": "range",
+          "maxLines": 20000
         }
       ],
       "options": {
@@ -379,7 +380,8 @@
             "uid": "avito-loki"
           },
           "expr": "{service_name=\"parser_avito\", instance=~\"$instance\", operation=~\"$operation\", subsystem=\"http\", http_tag=~\"$http_tag\", level=~\"$level\"} |= ${search:doublequote} | json | line_format \"{{.message}}\"",
-          "queryType": "range"
+          "queryType": "range",
+          "maxLines": 20000
         }
       ],
       "options": {
@@ -416,7 +418,8 @@
             "uid": "avito-loki"
           },
           "expr": "{service_name=\"parser_avito\", instance=~\"$instance\", operation=~\"$operation\", subsystem=~\"$subsystem\", level=~\"$level\"} |= ${search:doublequote} | json | line_format \"{{.message}}{{if .exception}}\\n{{.exception}}{{end}}\"",
-          "queryType": "range"
+          "queryType": "range",
+          "maxLines": 20000
         }
       ],
       "options": {
@@ -452,7 +455,8 @@
             "uid": "avito-loki"
           },
           "expr": "{service_name=\"parser_avito\", instance=~\"$instance\", operation=\"scan\", level=~\"$level\"} |= ${search:doublequote} | json | line_format \"{{.message}}{{if .exception}}\\n{{.exception}}{{end}}\"",
-          "queryType": "range"
+          "queryType": "range",
+          "maxLines": 20000
         }
       ],
       "options": {
@@ -489,7 +493,8 @@
             "uid": "avito-loki"
           },
           "expr": "{service_name=\"parser_avito\", instance=~\"$instance\", operation=\"refresh\", level=~\"$level\"} |= ${search:doublequote} | json | line_format \"{{.message}}{{if .exception}}\\n{{.exception}}{{end}}\"",
-          "queryType": "range"
+          "queryType": "range",
+          "maxLines": 20000
         }
       ],
       "options": {
@@ -526,7 +531,8 @@
             "uid": "avito-loki"
           },
           "expr": "{service_name=\"parser_avito\", instance=~\"$instance\", operation=~\"$operation\", subsystem=\"notifications\", level=~\"$level\"} |= ${search:doublequote} | json | line_format \"{{.message}}{{if .exception}}\\n{{.exception}}{{end}}\"",
-          "queryType": "range"
+          "queryType": "range",
+          "maxLines": 20000
         }
       ],
       "options": {
@@ -562,7 +568,8 @@
             "uid": "avito-loki"
           },
           "expr": "{service_name=\"parser_avito\", instance=~\"$instance\", operation=~\"$operation\", subsystem=\"blocking\", level=~\"$level\"} |= ${search:doublequote} | json | line_format \"{{.message}}{{if .exception}}\\n{{.exception}}{{end}}\"",
-          "queryType": "range"
+          "queryType": "range",
+          "maxLines": 20000
         }
       ],
       "options": {

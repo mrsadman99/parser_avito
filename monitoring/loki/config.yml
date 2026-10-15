@@ -31,6 +31,7 @@ compactor:
   delete_request_store: filesystem
 
 limits_config:
+  max_entries_limit_per_query: 20000
   retention_period: 168h
   max_query_lookback: 168h
   reject_old_samples: true

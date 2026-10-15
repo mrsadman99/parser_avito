@@ -19,4 +19,9 @@ def main():
 
 
 if __name__ == "__main__":
+    from loguru import logger
+    from utils.logging_setup import configure_app_logging
+    logger.remove()
+    configure_app_logging(Path(__file__).resolve().parent.parent / 'logs')
+    main = logger.catch(reraise=True)(main)
     main()

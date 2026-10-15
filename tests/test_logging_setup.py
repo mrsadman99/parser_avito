@@ -57,11 +57,11 @@ class LoggingTests(unittest.TestCase):
             finally:
                 for handler in handlers:
                     logger.remove(handler)
-            for category in ("app", "blocking"):
+            for category in ("app",):
                 content = (Path(directory) / f"{category}.log").read_text()
                 self.assertIn("CHILD_ROTATION <redacted-token>", content)
                 self.assertNotIn("123456789:", content)
-            self.assertNotIn("CHILD_ROTATION", (Path(directory) / "scanning.log").read_text())
+            self.assertFalse((Path(directory) / "scanning.log").exists())
             events = [json.loads(line) for line in (Path(directory) / "events.jsonl").read_text().splitlines()]
             child = next(event for event in events if "CHILD_ROTATION" in event["message"])
             self.assertEqual(child["operation"], "refresh")
@@ -130,17 +130,18 @@ class LoggingTests(unittest.TestCase):
             finally:
                 for handler in handlers:
                     logger.remove(handler)
-            logs = {category: (Path(directory) / f"{category}.log").read_text()
-                    for category in ("app", "scanning", "notifications", "blocking")}
+            content = (Path(directory) / 'app.log').read_text()
+            events = [json.loads(line) for line in (Path(directory) / 'events.jsonl').read_text().splitlines()]
             for name, function, message, expected in cases:
-                self.assertIn(message, logs["app"])
-                for category in ("scanning", "notifications", "blocking"):
-                    self.assertEqual(message in logs[category], category == expected, (message, category))
-            for content in logs.values():
-                self.assertNotIn(token, content)
-            self.assertIn("FATAL_ROTATION", logs["blocking"])
-            self.assertIn("FATAL_ROTATION", logs["app"])
-            self.assertNotIn("FATAL_ROTATION", logs["scanning"])
+                self.assertIn(message, content)
+                event = next(e for e in events if e['message'].startswith(message + ' '))
+                self.assertEqual(event['subsystem'], expected or 'general')
+                self.assertIn('subsystem=' + (expected or 'general'), content)
+            self.assertNotIn(token, content)
+            self.assertIn('FATAL_ROTATION', content)
+            self.assertEqual(events[-1]['subsystem'], 'blocking')
+            for category in ('scanning', 'notifications', 'blocking'):
+                self.assertFalse((Path(directory) / f'{category}.log').exists())
 
     def test_direct_parser_entrypoint_routes_by_filename(self):
         record = dict(name="__main__", file=type("File", (), {"name": "app.py"})(),

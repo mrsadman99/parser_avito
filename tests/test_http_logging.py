@@ -1,3 +1,4 @@
+import gzip
 import io
 import json
 from pathlib import Path
@@ -58,7 +59,7 @@ def test_spfa_202_body_headers_and_correlation_without_secrets(journal):
     assert end['operation'] == 'refresh' and end['http_tag'] == 'spfa'
     assert end['duration_ms'] >= 0
     assert start['request_id'] == end['request_id']
-    saved = json.loads((journal / 'http' / end['http_file']).read_text())
+    saved = json.loads(gzip.decompress((journal / 'http' / (end['http_file'] + '.gz')).read_bytes()))
     assert saved == end
     assert saved['response']['body']['value']['results']['id'] == 203679
     assert saved['response']['body']['value']['cookie_id'] == 203679
@@ -76,7 +77,7 @@ def test_long_avito_body_preserved_but_loki_line_bounded_and_link_works(journal)
     end = events(journal)[-1]
     assert end['response']['truncated'] is True
     assert max(len(line.encode()) for line in (journal / 'http.jsonl').read_text().splitlines()) < 256_000
-    full = json.loads((journal / 'http' / end['http_file']).read_text())
+    full = json.loads(gzip.decompress((journal / 'http' / (end['http_file'] + '.gz')).read_bytes()))
     assert full['response']['body']['value'] == payload
     datasource = Path('monitoring/grafana/provisioning/datasources/loki.yml').read_text()
     matcher = re.findall(r"matcherRegex: '([^']+)'", datasource)[-1]
@@ -105,7 +106,7 @@ def test_disk_error_does_not_retry_paid_request(journal, monkeypatch):
     send = Mock(return_value=result)
     def fail(*args, **kwargs):
         raise OSError('disk full')
-    monkeypatch.setattr(Path, 'write_text', fail)
+    monkeypatch.setattr(Path, 'write_bytes', fail)
     assert audit.http_call('spfa', 'POST', send, result.url) is result
     send.assert_called_once_with(result.url)
 

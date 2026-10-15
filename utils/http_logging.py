@@ -5,8 +5,6 @@ from datetime import datetime, timezone
 import hashlib
 from http.cookiejar import CookieJar
 import json
-import logging
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import re
 import threading
@@ -16,13 +14,12 @@ from uuid import uuid4
 from types import SimpleNamespace
 
 from hide_private_data import redact_log_text
+from utils.log_storage import append_log, save_payload
 
 
 http_operation = ContextVar('http_operation', default='other')
 _directory = Path('logs')
 _lock = threading.RLock()
-_journal = logging.Logger('parser_http', level=logging.DEBUG)
-_journal.propagate = False
 _forward = None
 _last_warning = float('-inf')
 REDACTED = '<redacted>'
@@ -33,10 +30,6 @@ def configure_http_logging(directory='logs'):
     global _directory
     with _lock:
         _directory = Path(directory).absolute()
-        for handler in _journal.handlers[:]:
-            _journal.removeHandler(handler)
-            handler.close()
-        # Lazy opening: importing CLI tools does not create log files.
 
 
 def http_log_directory():
@@ -184,9 +177,9 @@ def _files(files):
 
 def _preview(value):
     encoded = json.dumps(value, ensure_ascii=False)
-    if len(encoded.encode('utf-8')) <= 12000:
+    if len(encoded.encode('utf-8')) <= 2048:
         return value
-    return {'truncated': True, 'preview': encoded.encode('utf-8')[:12000].decode('utf-8', errors='ignore'),
+    return {'truncated': True, 'preview': encoded.encode('utf-8')[:2048].decode('utf-8', errors='ignore'),
             'full_bytes': len(encoded.encode('utf-8'))}
 
 
@@ -200,18 +193,16 @@ def record_http(event):
             _directory.mkdir(parents=True, exist_ok=True)
             relative = event['http_file']
             destination = _directory / 'http' / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            temporary = destination.with_suffix('.tmp')
-            temporary.write_text(json.dumps(event, ensure_ascii=False, indent=2), encoding='utf-8')
-            temporary.chmod(0o644)
-            temporary.replace(destination)
-            if not _journal.handlers:
-                handler = RotatingFileHandler(_directory / 'http.jsonl', maxBytes=20*1024*1024,
-                                              backupCount=10, encoding='utf-8')
-                handler.setFormatter(logging.Formatter('%(message)s'))
-                _journal.addHandler(handler)
+            # Сохраняем полный обмен один раз после завершения; отправка уже есть в JSONL.
+            if event['phase'] != 'request':
+                try:
+                    save_payload(destination, event)
+                except Exception as error:
+                    _audit_warning(error)
             compact = {k: _preview(v) for k, v in event.items()}
-            _journal.info(json.dumps(compact, ensure_ascii=False))
+            append_log(_directory / 'http.jsonl', json.dumps(compact, ensure_ascii=False) + '\n',
+                       max_bytes=5 * 1024 * 1024, backups=5)
+
     except Exception as error:
         # Даже ошибка маскировки/диска не должна вызвать повтор платного POST.
         _audit_warning(error)

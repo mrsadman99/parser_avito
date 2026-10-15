@@ -185,7 +185,6 @@ class LocalProcessTests(unittest.TestCase):
                     errors.append(err)
             with patch.object(mobile, 'FOLLOW_PID', root / 'pid'), \
                  patch.object(mobile, 'FOLLOW_LOCK', root / 'lock'), \
-                 patch.object(mobile, 'FOLLOW_LOG', root / 'log'), \
                  patch.object(mobile, '_pid_alive', side_effect=lambda pid: pid == 123), \
                  patch.object(mobile.subprocess, 'Popen', return_value=Mock(pid=123)) as spawn:
                 threads = [threading.Thread(target=start) for _ in range(2)]

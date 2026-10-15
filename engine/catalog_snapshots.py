@@ -1,11 +1,11 @@
 """Полные ответы выдачи на диске; в Loki отправляется только указатель и счётчики."""
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from loguru import logger
+from utils.log_storage import save_payload
 
 
 def find_catalog(payload):
@@ -71,21 +71,13 @@ def save_catalog_response(payload, *, url, page, status_code,
     """
     if not isinstance(status_code, int) or not 200 <= status_code < 300:
         return None
-    temporary = None
     log = logger.bind(log_category="scanning", operation="scan")
     try:
         now = datetime.now(timezone.utc)
         relative = f"{now:%Y-%m-%d}/{now:%H%M%S%f}_{uuid4().hex}.json"
         destination = Path(directory) / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = destination.with_suffix(".tmp")
-        with temporary.open("x", encoding="utf-8") as stream:
-            json.dump(payload, stream, ensure_ascii=False, indent=2)
-            stream.write("\n")
-        # Docker nginx runs under a different uid; the containing directory is
-        # exposed only inside the monitoring network, behind Grafana's login.
-        temporary.chmod(0o644)
-        temporary.replace(destination)
+        saved_path = save_payload(destination, payload)
 
         items = extract_catalog(payload).get("items")
         count = len(items) if items is not None else None
@@ -111,13 +103,7 @@ def save_catalog_response(payload, *, url, page, status_code,
             query.get("query", query.get("q", [""]))[0], page, status_code, count, ads, main_items, extra_items,
             counters["count"], counters["totalCount"], counters["mainCount"], relative, url,
         )
-        return destination
+        return saved_path
     except Exception as error:
         log.warning("Не удалось сохранить JSON выдачи: page={} | URL={} | {}", page, url, error)
         return None
-    finally:
-        if temporary is not None:
-            try:
-                temporary.unlink(missing_ok=True)
-            except OSError:
-                pass

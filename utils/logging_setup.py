@@ -1,4 +1,4 @@
-"""Общий журнал и отдельные журналы трёх алгоритмов приложения."""
+"""Общий журнал и JSONL тех же событий с тегами для Grafana."""
 from pathlib import Path
 from functools import wraps
 import json
@@ -85,20 +85,27 @@ def json_log_format(record):
     return "{extra[_json_line]}\n"
 
 
+def _app_sink(message):
+    event = json.loads(str(message))
+    directory = Path(message.record['extra']['_log_directory'])
+    from utils.log_storage import append_log
+    text = (f"{event['timestamp']} | {event['level'].upper()} | "
+            f"subsystem={event['subsystem']} operation={event['operation']} | "
+            f"{event['module']}:{event['function']}:{event['line']} - {event['message']}\n")
+    if event['exception']:
+        text += event['exception'].rstrip() + '\n'
+    append_log(directory / 'app.log', text)
+    append_log(directory / 'events.jsonl', str(message))
+
+
 def configure_app_logging(directory="logs"):
-    """Вызывается один раз при загрузке парсера; возвращает ID добавленных sinks."""
-    directory = Path(directory)
+    """Общий текстовый журнал и JSONL тех же событий для Grafana."""
+    directory = Path(directory).absolute()
     configure_http_logging(directory)
-    options = dict(rotation="5 MB", retention="5 days", level="DEBUG", encoding="utf-8")
-    handlers = [logger.add(directory / "app.log", **options)]
-    for category in ("scanning", "notifications", "blocking"):
-        handlers.append(logger.add(
-            directory / f"{category}.log",
-            filter=lambda record, expected=category: log_category(record) == expected,
-            **options,
-        ))
-    handlers.append(logger.add(
-        directory / "events.jsonl", format=json_log_format, colorize=False,
-        diagnose=False, backtrace=False, **options,
-    ))
-    return handlers
+    from utils.log_storage import remove_legacy_logs
+    remove_legacy_logs(directory)
+    def prepare(record):
+        record['extra']['_log_directory'] = str(directory)
+        return True
+    return [logger.add(_app_sink, format=json_log_format, filter=prepare, colorize=False,
+                       diagnose=False, backtrace=False, level='DEBUG')]
